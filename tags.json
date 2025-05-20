@@ -1,0 +1,107 @@
+{
+  "Super": [
+    "WALMART",
+    "FRESH",
+    "SUPER UNIDOS",
+    "AM PM",
+    "VINDI",
+    "MXM",
+    "PALI",
+    "AUTO MERCADO",
+    "PRICE SMART",
+    "SUPER VIVA CENTRAL",
+    "SUPER",
+    "LA TIENDITA BARRIO OTOYA"
+  ],
+  "Salidas": [
+    "FINCA SAMANA",
+    "REPUBLICA CERVECERA",
+    "ESQUINITA DE LA ABUELA",
+    "GELATERIA",
+    "BAKERY",
+    "TORTA CHILENA",
+    "PIZZA",
+    "STARBUCKS",
+    "CAFETERIA",
+    "RESTAURANTE",
+    "BURGER",
+    "FOGONCITO",
+    "ROSTI",
+    "ROSTIVENTANITA",
+    "MOYO",
+    "KFC",
+    "SUBWAY",
+    "ALEBRIJES",
+    "TACO BELL",
+    "TORTILLON",
+    "KAIA SMART FOOD",
+    "SPOON",
+    "ROSTIPOLLOS",
+    "PACO MERALGO",
+    "LA CASONA DE LALY"
+  ],
+  "Carne": [
+    "CARNICERIA"
+  ],
+  "Casa": [
+    "SUR QUIMICA",
+    "DEPOSITO IRAZU",
+    "EL LAGAR"
+  ],
+  "Celular": [
+    "I.C.E.",
+    "LABORATORIO PHONE"
+  ],
+  "Cable": [
+    "LIBERTY"
+  ],
+  "Concierto": [
+    "E-TICKET"
+  ],
+  "Salud": [
+    "FARMAVALUE",
+    "FISCHEL",
+    "FARMACIA",
+    "DERMATOLOGIA",
+    "GNC",
+    "Medical",
+    "MEDICAL"
+  ],
+  "Carro": [
+    "Global via",
+    "PARQ",
+    "SERVICENTRO",
+    "ALESTE",
+    "AERIS",
+    "MUNI GOICO PARK",
+    "DEKRA"
+  ],
+  "Juegos": [
+    "STEAM",
+    "HUMBLEBUNDLE"
+  ],
+  "Ropa": [
+    "ALISS",
+    "SIMAN",
+    "OLD NAVY",
+    "YAMUNI"
+  ],
+  "Tarjeta": [
+    "PAGO RECIBIDO"
+  ],
+  "Eventos": [
+    "EL REY"
+  ],
+  "Regalos": [
+    "FLORISTERIA"
+  ],
+  "Bebe": [
+    "BEBE MUNDO",
+    "DRA ADRIANA",
+    "DRA ANA LAURA JIMENEZ",
+    "CARESTINO"
+  ],
+  "Mascotas": [
+    "FISIOVET"
+  ]
+}
