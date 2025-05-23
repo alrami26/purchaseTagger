@@ -1,107 +1,167 @@
 {
-  "Super": [
-    "WALMART",
-    "FRESH",
-    "SUPER UNIDOS",
-    "AM PM",
-    "VINDI",
-    "MXM",
-    "PALI",
-    "AUTO MERCADO",
-    "PRICE SMART",
-    "SUPER VIVA CENTRAL",
-    "SUPER",
-    "LA TIENDITA BARRIO OTOYA"
-  ],
-  "Salidas": [
-    "FINCA SAMANA",
-    "REPUBLICA CERVECERA",
-    "ESQUINITA DE LA ABUELA",
-    "GELATERIA",
-    "BAKERY",
-    "TORTA CHILENA",
-    "PIZZA",
-    "STARBUCKS",
-    "CAFETERIA",
-    "RESTAURANTE",
-    "BURGER",
-    "FOGONCITO",
-    "ROSTI",
-    "ROSTIVENTANITA",
-    "MOYO",
-    "KFC",
-    "SUBWAY",
-    "ALEBRIJES",
-    "TACO BELL",
-    "TORTILLON",
-    "KAIA SMART FOOD",
-    "SPOON",
-    "ROSTIPOLLOS",
-    "PACO MERALGO",
-    "LA CASONA DE LALY"
-  ],
-  "Carne": [
-    "CARNICERIA"
-  ],
-  "Casa": [
-    "SUR QUIMICA",
-    "DEPOSITO IRAZU",
-    "EL LAGAR"
-  ],
-  "Celular": [
-    "I.C.E.",
-    "LABORATORIO PHONE"
-  ],
-  "Cable": [
-    "LIBERTY"
-  ],
-  "Concierto": [
-    "E-TICKET"
-  ],
-  "Salud": [
-    "FARMAVALUE",
-    "FISCHEL",
-    "FARMACIA",
-    "DERMATOLOGIA",
-    "GNC",
-    "Medical",
-    "MEDICAL"
-  ],
-  "Carro": [
-    "Global via",
-    "PARQ",
-    "SERVICENTRO",
-    "ALESTE",
-    "AERIS",
-    "MUNI GOICO PARK",
-    "DEKRA"
-  ],
-  "Juegos": [
-    "STEAM",
-    "HUMBLEBUNDLE"
-  ],
-  "Ropa": [
-    "ALISS",
-    "SIMAN",
-    "OLD NAVY",
-    "YAMUNI"
-  ],
-  "Tarjeta": [
-    "PAGO RECIBIDO"
-  ],
-  "Eventos": [
-    "EL REY"
-  ],
-  "Regalos": [
-    "FLORISTERIA"
-  ],
-  "Bebe": [
-    "BEBE MUNDO",
-    "DRA ADRIANA",
-    "DRA ANA LAURA JIMENEZ",
-    "CARESTINO"
-  ],
-  "Mascotas": [
-    "FISIOVET"
-  ]
+  "Super": {
+    "keywords": [
+      "WALMART",
+      "FRESH",
+      "SUPER UNIDOS",
+      "AM PM",
+      "VINDI",
+      "MXM",
+      "PALI",
+      "AUTO MERCADO",
+      "PRICE SMART",
+      "SUPER VIVA CENTRAL",
+      "SUPER",
+      "LA TIENDITA BARRIO OTOYA",
+      "Peri",
+      "Surtimas"
+    ],
+    "limit": 10000
+  },
+  "Salidas": {
+    "keywords": [
+      "FINCA SAMANA",
+      "REPUBLICA CERVECERA",
+      "ESQUINITA DE LA ABUELA",
+      "GELATERIA",
+      "BAKERY",
+      "TORTA CHILENA",
+      "PIZZA",
+      "STARBUCKS",
+      "CAFETERIA",
+      "RESTAURANTE",
+      "BURGER",
+      "FOGONCITO",
+      "ROSTI",
+      "ROSTIVENTANITA",
+      "MOYO",
+      "KFC",
+      "SUBWAY",
+      "ALEBRIJES",
+      "TACO BELL",
+      "TORTILLON",
+      "KAIA SMART FOOD",
+      "SPOON",
+      "ROSTIPOLLOS",
+      "PACO MERALGO",
+      "LA CASONA DE LALY",
+      "Sabor de la Tortilla"
+    ],
+    "limit": 0
+  },
+  "Carne": {
+    "keywords": [
+      "CARNICERIA"
+    ],
+    "limit": 0
+  },
+  "Casa": {
+    "keywords": [
+      "SUR QUIMICA",
+      "DEPOSITO IRAZU",
+      "EL LAGAR"
+    ],
+    "limit": 0
+  },
+  "Celular": {
+    "keywords": [
+      "I.C.E.",
+      "LABORATORIO PHONE"
+    ],
+    "limit": 0
+  },
+  "Cable": {
+    "keywords": [
+      "LIBERTY"
+    ],
+    "limit": 0
+  },
+  "Concierto": {
+    "keywords": [
+      "E-TICKET"
+    ],
+    "limit": 0
+  },
+  "Salud": {
+    "keywords": [
+      "FARMAVALUE",
+      "FISCHEL",
+      "FARMACIA",
+      "DERMATOLOGIA",
+      "GNC",
+      "Medical",
+      "MEDICAL"
+    ],
+    "limit": 0
+  },
+  "Carro": {
+    "keywords": [
+      "Global via",
+      "PARQ",
+      "SERVICENTRO",
+      "ALESTE",
+      "AERIS",
+      "MUNI GOICO PARK",
+      "DEKRA",
+      "Delta",
+      "Vehicles EV"
+    ],
+    "limit": 0
+  },
+  "Juegos": {
+    "keywords": [
+      "STEAM",
+      "HUMBLEBUNDLE"
+    ],
+    "limit": 0
+  },
+  "Ropa": {
+    "keywords": [
+      "ALISS",
+      "SIMAN",
+      "OLD NAVY",
+      "YAMUNI"
+    ],
+    "limit": 0
+  },
+  "Tarjeta": {
+    "keywords": [
+      "PAGO RECIBIDO"
+    ],
+    "limit": 0
+  },
+  "Eventos": {
+    "keywords": [
+      "EL REY"
+    ],
+    "limit": 0
+  },
+  "Regalos": {
+    "keywords": [
+      "FLORISTERIA"
+    ],
+    "limit": 0
+  },
+  "Bebe": {
+    "keywords": [
+      "BEBE MUNDO",
+      "DRA ADRIANA",
+      "DRA ANA LAURA JIMENEZ",
+      "CARESTINO",
+      "Village"
+    ],
+    "limit": 0
+  },
+  "Mascotas": {
+    "keywords": [
+      "FISIOVET"
+    ],
+    "limit": 0
+  },
+  "Ci": {
+    "keywords": [
+      "VINDI CONCEPCION"
+    ],
+    "limit": 0
+  }
 }
