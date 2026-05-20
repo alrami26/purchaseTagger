@@ -297,8 +297,10 @@ class PurchaseTaggerUI(ctk.CTk):
             else:
                 button.configure(fg_color="transparent", text_color="#cbd5e1")
 
+        self._clear_workspace_widget_refs()
         for child in self.workspace.winfo_children():
             child.destroy()
+        self._clear_workspace_widget_refs()
 
         if view_name == "Imports":
             self._build_imports_view()
@@ -308,6 +310,42 @@ class PurchaseTaggerUI(ctk.CTk):
             self._build_summary_view()
         elif view_name == "Tags":
             self._build_tags_view()
+
+    def _clear_workspace_widget_refs(self):
+        for name in (
+            "tree",
+            "currency_menu",
+            "month_menu",
+            "tag_menu",
+            "visible_count_var",
+            "summary_frame",
+            "summary_choice_var",
+            "summary_chart_menu",
+            "summary_month_menu",
+            "summary_currency_vars",
+            "tag_listbox",
+            "keyword_listbox",
+            "limit_var",
+        ):
+            if name in self.__dict__:
+                delattr(self, name)
+
+    def _has_live_tree(self):
+        tree = self.__dict__.get("tree")
+        if tree is None:
+            return False
+        if not hasattr(tree, "winfo_exists"):
+            return True
+        try:
+            return bool(tree.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def _var_value(self, name, default):
+        var = self.__dict__.get(name)
+        if var is None:
+            return default
+        return var.get()
 
     def _build_placeholder_view(self, title):
         ctk.CTkLabel(
@@ -364,13 +402,13 @@ class PurchaseTaggerUI(ctk.CTk):
 
     def apply_filter(self):
         text = self.search_var.get()
-        selected_currency = getattr(self, "currency_var", tk.StringVar(value="All currencies")).get()
+        selected_currency = self._var_value("currency_var", "All currencies")
         currencies = None if selected_currency == "All currencies" else {selected_currency}
-        month_key = getattr(self, "month_var", tk.StringVar(value=ALL_MONTHS)).get()
-        tag_name = getattr(self, "tag_filter_var", tk.StringVar(value=ALL_TAGS)).get()
+        month_key = self._var_value("month_var", ALL_MONTHS)
+        tag_name = self._var_value("tag_filter_var", ALL_TAGS)
         self.filtered_rows = filter_purchase_rows(self.all_rows, text, currencies, month_key, tag_name)
         self.tree_item_rows.clear()
-        if not hasattr(self, "tree"):
+        if not self._has_live_tree():
             self.total_var.set(format_totals(self.filtered_rows))
             stats = kpi_stats(self.all_rows, self.filtered_rows, self.tags, self.natag)
             for name, value in stats.items():
