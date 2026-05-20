@@ -355,11 +355,234 @@ class PurchaseTaggerUI(ctk.CTk):
             text_color="#171a20",
         ).grid(row=0, column=0, sticky="w", padx=24, pady=24)
 
+    def _panel(self, parent, **grid_options):
+        frame = ctk.CTkFrame(parent, fg_color="#ffffff", border_width=1, border_color="#e0e5ec", corner_radius=8)
+        frame.grid(**grid_options)
+        return frame
+
+    def _build_page_header(self, parent, title, subtitle, action_text=None, action_command=None):
+        header = ctk.CTkFrame(parent, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=24, pady=(22, 10))
+        header.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            header,
+            text=title,
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color="#171a20",
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            header,
+            text=subtitle,
+            font=ctk.CTkFont(size=12),
+            text_color="#6b7280",
+        ).grid(row=1, column=0, sticky="w", pady=(2, 0))
+        if action_text and action_command:
+            ctk.CTkButton(header, text=action_text, command=action_command, fg_color="#2563eb").grid(
+                row=0, column=1, rowspan=2, sticky="e"
+            )
+
     def _build_imports_view(self):
-        self._build_placeholder_view("Imports")
+        self.workspace.grid_rowconfigure(1, weight=1)
+        self._build_page_header(
+            self.workspace,
+            "Imports",
+            "Load PDFs, tag purchases, and review results.",
+            action_text="Load & Tag",
+            action_command=self.load,
+        )
+
+        content = ctk.CTkFrame(self.workspace, fg_color="transparent")
+        content.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 14))
+        content.grid_columnconfigure(0, weight=1)
+        content.grid_rowconfigure(3, weight=1)
+
+        self._build_file_panel(content, row=0)
+        self._build_kpi_row(content, row=1)
+        self._build_filter_toolbar(content, row=2)
+        self._build_purchase_table(content, row=3)
+        self._build_totals_footer(content, row=4)
+        self.apply_filter()
 
     def _build_purchases_view(self):
-        self._build_placeholder_view("Purchases")
+        self.workspace.grid_rowconfigure(1, weight=1)
+        self._build_page_header(
+            self.workspace,
+            "Purchases",
+            "Review, search, and correct tagged purchase rows.",
+        )
+
+        content = ctk.CTkFrame(self.workspace, fg_color="transparent")
+        content.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 14))
+        content.grid_columnconfigure(0, weight=1)
+        content.grid_rowconfigure(2, weight=1)
+
+        self._build_kpi_row(content, row=0)
+        self._build_filter_toolbar(content, row=1)
+        self._build_purchase_table(content, row=2)
+        self._build_totals_footer(content, row=3)
+        self.apply_filter()
+
+    def _build_file_panel(self, parent, row):
+        panel = self._panel(parent, row=row, column=0, sticky="ew", pady=(0, 12))
+        panel.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(panel, text="Selected PDFs", text_color="#6b7280", font=ctk.CTkFont(size=11)).grid(
+            row=0, column=0, sticky="w", padx=14, pady=(12, 0)
+        )
+        ctk.CTkLabel(
+            panel,
+            textvariable=self.file_label_var,
+            text_color="#171a20",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).grid(row=1, column=0, sticky="w", padx=14, pady=(2, 12))
+        ctk.CTkButton(panel, text="Browse", command=self.browse_pdf, width=90).grid(
+            row=0, column=1, rowspan=2, padx=(0, 8)
+        )
+        ctk.CTkButton(panel, text="Clear", command=self.clear_pdfs, width=80, fg_color="#64748b").grid(
+            row=0, column=2, rowspan=2, padx=(0, 14)
+        )
+
+    def _build_kpi_row(self, parent, row):
+        frame = ctk.CTkFrame(parent, fg_color="transparent")
+        frame.grid(row=row, column=0, sticky="ew", pady=(0, 12))
+        for index in range(5):
+            frame.grid_columnconfigure(index, weight=1)
+        cards = [
+            ("Purchases", "total_rows"),
+            ("Visible", "visible_rows"),
+            ("Untagged", "untagged_rows"),
+            ("Currencies", "currency_count"),
+            ("Over Limit", "over_limit_tags"),
+        ]
+        for index, (label, key) in enumerate(cards):
+            card = ctk.CTkFrame(frame, fg_color="#ffffff", border_width=1, border_color="#e0e5ec", corner_radius=8)
+            card.grid(row=0, column=index, sticky="ew", padx=(0 if index == 0 else 8, 0))
+            ctk.CTkLabel(card, text=label, text_color="#6b7280", font=ctk.CTkFont(size=11)).pack(
+                anchor="w", padx=12, pady=(10, 0)
+            )
+            ctk.CTkLabel(
+                card,
+                textvariable=self.kpi_vars[key],
+                text_color="#171a20",
+                font=ctk.CTkFont(size=22, weight="bold"),
+            ).pack(anchor="w", padx=12, pady=(2, 10))
+
+    def _build_filter_toolbar(self, parent, row):
+        panel = self._panel(parent, row=row, column=0, sticky="ew", pady=(0, 12))
+        panel.grid_columnconfigure(0, weight=1)
+        if not getattr(self, "_search_trace_registered", False):
+            self.search_var.trace_add("write", lambda *args: self.apply_filter())
+            self._search_trace_registered = True
+        search = ctk.CTkEntry(panel, textvariable=self.search_var, placeholder_text="Search purchases, descriptions, tags")
+        search.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        self.currency_menu = ctk.CTkOptionMenu(
+            panel,
+            variable=self.currency_var,
+            values=["All currencies"],
+            command=lambda _: self.apply_filter(),
+        )
+        self.currency_menu.grid(row=0, column=1, padx=(0, 8))
+        self.month_menu = ctk.CTkOptionMenu(
+            panel,
+            variable=self.month_var,
+            values=[ALL_MONTHS],
+            command=lambda _: self.apply_filter(),
+        )
+        self.month_menu.grid(row=0, column=2, padx=(0, 8))
+        self.tag_menu = ctk.CTkOptionMenu(
+            panel,
+            variable=self.tag_filter_var,
+            values=[ALL_TAGS],
+            command=lambda _: self.apply_filter(),
+        )
+        self.tag_menu.grid(row=0, column=3, padx=(0, 8))
+        ctk.CTkButton(panel, text="Reset", command=self.reset_filters, width=72, fg_color="#64748b").grid(
+            row=0, column=4, padx=(0, 8)
+        )
+        ctk.CTkButton(panel, text="Export", command=self.export_csv, width=76).grid(row=0, column=5, padx=(0, 10))
+
+    def _build_purchase_table(self, parent, row):
+        table_frame = self._panel(parent, row=row, column=0, sticky="nsew")
+        table_frame.grid_columnconfigure(0, weight=1)
+        table_frame.grid_rowconfigure(0, weight=1)
+
+        cols = ("date", "description", "amount", "currency", "tag")
+        self.tree = ttk.Treeview(table_frame, columns=cols, show="headings")
+        for col in cols:
+            self.tree.heading(col, text=col.title(), command=lambda selected_col=col: self.sort_column(selected_col, False))
+        self.tree.column("date", width=110, anchor="w")
+        self.tree.column("description", width=360, anchor="w")
+        self.tree.column("amount", width=120, anchor="e")
+        self.tree.column("currency", width=90, anchor="center")
+        self.tree.column("tag", width=140, anchor="w")
+        self.tree.grid(row=0, column=0, sticky="nsew", padx=(1, 0), pady=1)
+        self.tree.bind("<Button-3>", self.on_right_click)
+
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self._style_treeview()
+
+    def _build_totals_footer(self, parent, row):
+        footer = ctk.CTkFrame(parent, fg_color="transparent")
+        footer.grid(row=row, column=0, sticky="ew", pady=(8, 0))
+        footer.grid_columnconfigure(0, weight=1)
+        self.visible_count_var = tk.StringVar(value="Showing 0 purchases")
+        ctk.CTkLabel(
+            footer,
+            textvariable=self.visible_count_var,
+            text_color="#6b7280",
+            font=ctk.CTkFont(size=12),
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            footer,
+            textvariable=self.total_var,
+            text_color="#171a20",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).grid(row=0, column=1, sticky="e")
+
+    def _style_treeview(self):
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(
+            "Treeview",
+            background="#ffffff",
+            fieldbackground="#ffffff",
+            foreground="#171a20",
+            rowheight=30,
+            borderwidth=0,
+            font=("Segoe UI", 10),
+        )
+        style.configure(
+            "Treeview.Heading",
+            background="#eef2f7",
+            foreground="#475569",
+            relief="flat",
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map("Treeview", background=[("selected", "#dbeafe")], foreground=[("selected", "#171a20")])
+
+    def _refresh_filter_options(self):
+        if "currency_menu" in self.__dict__:
+            currency_values = ["All currencies"] + available_currencies(self.all_rows)
+            self.currency_menu.configure(values=currency_values)
+            if self.currency_var.get() not in currency_values:
+                self.currency_var.set("All currencies")
+        if "month_menu" in self.__dict__:
+            month_values = [ALL_MONTHS] + available_months(self.all_rows)
+            self.month_menu.configure(values=month_values)
+            if self.month_var.get() not in month_values:
+                self.month_var.set(ALL_MONTHS)
+        if "tag_menu" in self.__dict__:
+            tag_values = [ALL_TAGS] + available_tags(self.all_rows)
+            self.tag_menu.configure(values=tag_values)
+            if self.tag_filter_var.get() not in tag_values:
+                self.tag_filter_var.set(ALL_TAGS)
+
+    def _update_kpis(self):
+        stats = kpi_stats(self.all_rows, self.filtered_rows, self.tags, self.natag)
+        for key, value in stats.items():
+            if "kpi_vars" in self.__dict__ and key in self.kpi_vars:
+                self.kpi_vars[key].set(str(value))
 
     def _build_summary_view(self):
         self._build_placeholder_view("Summaries")
@@ -379,17 +602,21 @@ class PurchaseTaggerUI(ctk.CTk):
         files = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
         if files:
             self.pdf_files = list(files)
-            if hasattr(self, "file_label_var"):
-                self.file_label_var.set(build_file_label(self.pdf_files))
-            if hasattr(self, "pdf_entry"):
-                self.pdf_entry.delete(0, tk.END)
-                self.pdf_entry.insert(0, "; ".join(os.path.basename(f) for f in files))
+            self.file_label_var.set(build_file_label(self.pdf_files))
+            self.status_var.set(f"{len(self.pdf_files)} PDF file(s) selected")
+
+    def clear_pdfs(self):
+        self.pdf_files = []
+        self.file_label_var.set(build_file_label(self.pdf_files))
+        self.status_var.set("No PDFs selected")
 
     def load(self):
         if not self.pdf_files:
             messagebox.showwarning('No File', 'Please select one or more PDF files.')
             return
         self.all_rows = []
+        self.status_var.set("Processing PDFs...")
+        self.update_idletasks()
         for pdf in self.pdf_files:
             try:
                 raw = process_purchases(pdf)
@@ -398,33 +625,46 @@ class PurchaseTaggerUI(ctk.CTk):
             except Exception as e:
                 messagebox.showerror('Error', f'{os.path.basename(pdf)}: {e}')
         self.apply_filter()
-        messagebox.showinfo('Loaded', f'Loaded and tagged {len(self.all_rows)} purchases.')
+        self.status_var.set(f"Loaded and tagged {len(self.all_rows)} purchases")
 
     def apply_filter(self):
-        text = self.search_var.get()
         selected_currency = self._var_value("currency_var", "All currencies")
-        currencies = None if selected_currency == "All currencies" else {selected_currency}
-        month_key = self._var_value("month_var", ALL_MONTHS)
-        tag_name = self._var_value("tag_filter_var", ALL_TAGS)
-        self.filtered_rows = filter_purchase_rows(self.all_rows, text, currencies, month_key, tag_name)
+        currencies = set() if selected_currency == "All currencies" else {selected_currency}
+        self.filtered_rows = filter_purchase_rows(
+            self.all_rows,
+            search_text=self._var_value("search_var", ""),
+            currencies=currencies,
+            month_key=self._var_value("month_var", ALL_MONTHS),
+            tag_name=self._var_value("tag_filter_var", ALL_TAGS),
+        )
         self.tree_item_rows.clear()
         if not self._has_live_tree():
+            self._refresh_filter_options()
+            self._update_kpis()
             self.total_var.set(format_totals(self.filtered_rows))
-            stats = kpi_stats(self.all_rows, self.filtered_rows, self.tags, self.natag)
-            for name, value in stats.items():
-                if hasattr(self, "kpi_vars") and name in self.kpi_vars:
-                    self.kpi_vars[name].set(str(value))
+            if "visible_count_var" in self.__dict__:
+                self.visible_count_var.set(f"Showing {len(self.filtered_rows)} purchases")
             return
         for i in self.tree.get_children():
             self.tree.delete(i)
-        for r in self.filtered_rows:
-            iid = self.tree.insert('', 'end', values=r)
-            self.tree_item_rows[iid] = r
+        for index, row in enumerate(self.filtered_rows):
+            tags = ("odd",) if index % 2 else ("even",)
+            iid = self.tree.insert('', 'end', values=row, tags=tags)
+            self.tree_item_rows[iid] = row
+        self.tree.tag_configure("even", background="#ffffff")
+        self.tree.tag_configure("odd", background="#fafbfc")
+        self._refresh_filter_options()
+        self._update_kpis()
         self.total_var.set(format_totals(self.filtered_rows))
-        stats = kpi_stats(self.all_rows, self.filtered_rows, self.tags, self.natag)
-        for name, value in stats.items():
-            if hasattr(self, "kpi_vars") and name in self.kpi_vars:
-                self.kpi_vars[name].set(str(value))
+        if "visible_count_var" in self.__dict__:
+            self.visible_count_var.set(f"Showing {len(self.filtered_rows)} purchases")
+
+    def reset_filters(self):
+        self.search_var.set("")
+        self.currency_var.set("All currencies")
+        self.month_var.set(ALL_MONTHS)
+        self.tag_filter_var.set(ALL_TAGS)
+        self.apply_filter()
 
     def on_right_click(self, event):
         iid = self.tree.identify_row(event.y)
