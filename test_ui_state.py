@@ -1,3 +1,5 @@
+import os
+
 from ui_state import (
     available_currencies,
     available_tags,
@@ -68,5 +70,5 @@ def test_format_totals_outputs_sorted_currency_totals():
 
 def test_build_file_label_handles_empty_single_and_multiple_files():
     assert build_file_label([]) == "No PDFs selected"
-    assert build_file_label([r"C:\tmp\statement.pdf"]) == "statement.pdf"
-    assert build_file_label([r"C:\tmp\a.pdf", r"C:\tmp\b.pdf"]) == "2 PDFs selected"
+    assert build_file_label([os.path.join("tmp", "statement.pdf")]) == "statement.pdf"
+    assert build_file_label([os.path.join("tmp", "a.pdf"), os.path.join("tmp", "b.pdf")]) == "2 PDFs selected"
