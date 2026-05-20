@@ -72,6 +72,82 @@ class SimpleVar:
         self.value = value
 
 
+class FakeFrame:
+    def __init__(self, children=None):
+        self.children = list(children or [])
+        self.grid_rows = {}
+        self.grid_columns = {}
+
+    def winfo_children(self):
+        return list(self.children)
+
+    def grid_rowconfigure(self, row, weight=0):
+        self.grid_rows[row] = weight
+
+    def grid_columnconfigure(self, column, weight=0):
+        self.grid_columns[column] = weight
+
+    def update_idletasks(self):
+        pass
+
+
+class FakeWidget:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        self.grid_options = None
+        self.packed = False
+        self.destroyed = False
+
+    def grid(self, **kwargs):
+        self.grid_options = kwargs
+
+    def pack(self, **kwargs):
+        self.packed = True
+
+    def destroy(self):
+        self.destroyed = True
+
+    def set(self, *args):
+        pass
+
+
+class FakeSummaryTree(FakeWidget):
+    instances = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.columns = list(kwargs["columns"])
+        self.headings = {}
+        self.column_options = {}
+        self.rows = []
+        self.tag_options = {}
+        self.configure_options = {}
+        FakeSummaryTree.instances.append(self)
+
+    def configure(self, **kwargs):
+        self.configure_options.update(kwargs)
+
+    def yview(self, *args):
+        pass
+
+    def xview(self, *args):
+        pass
+
+    def heading(self, column, **kwargs):
+        self.headings[column] = kwargs
+
+    def column(self, column, **kwargs):
+        self.column_options[column] = kwargs
+
+    def tag_configure(self, tag_name, **kwargs):
+        self.tag_options[tag_name] = kwargs
+
+    def insert(self, parent, index, values=None, tags=()):
+        self.rows.append({"values": list(values or []), "tags": list(tags)})
+        return f"summary-{len(self.rows)}"
+
+
 class PurchaseTaggerRowMappingTest(unittest.TestCase):
     def make_app(self, rows, visible_order):
         app = object.__new__(PurchaseTaggerUI)
@@ -317,6 +393,54 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.file_label_var.get(), "No PDFs selected")
         self.assertEqual(app.total_var.get(), "Totals: 0.00")
         self.assertIn("total_rows", app.kpi_vars)
+
+    def test_open_summary_routes_to_workspace_summary_view(self):
+        app = object.__new__(PurchaseTaggerUI)
+        calls = []
+        app.show_view = calls.append
+
+        app.open_summary()
+
+        self.assertEqual(calls, ["Summaries"])
+
+    def test_draw_summary_shows_empty_state_before_currency_state(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.all_rows = []
+        app.filtered_rows = []
+        app.summary_frame = FakeFrame([FakeWidget()])
+        app.summary_currency_vars = {}
+        app.summary_month_var = SimpleVar("Todos")
+        app.summary_choice_var = SimpleVar("Spend by Tag")
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget) as label:
+            app.draw_summary()
+
+        self.assertTrue(app.summary_frame.winfo_children()[0].destroyed)
+        self.assertEqual(label.call_args.kwargs["text"], "Load purchases to see summaries.")
+
+    def test_average_spend_table_marks_rows_over_limit(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.summary_frame = FakeFrame()
+        app.tags = {
+            "Dining": {"limit": 50},
+            "Groceries": {"limit": 200},
+        }
+        rows = [
+            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
+            ["02-ENE-25", "MARKET", "90.00", "USD", "Groceries"],
+        ]
+        FakeSummaryTree.instances = []
+
+        with patch("purchase_tagger_app.ttk.Treeview", side_effect=FakeSummaryTree), \
+                patch("purchase_tagger_app.ttk.Scrollbar", side_effect=FakeWidget):
+            app._draw_average_spend_table(rows, {"USD"})
+
+        tree = FakeSummaryTree.instances[0]
+        self.assertIn("over_limit", tree.tag_options)
+        self.assertEqual(tree.rows[0]["values"][0], "Dining")
+        self.assertEqual(tree.rows[0]["tags"], ["over_limit"])
+        self.assertEqual(tree.rows[-1]["values"][0], "Total")
 
 
 if __name__ == "__main__":
