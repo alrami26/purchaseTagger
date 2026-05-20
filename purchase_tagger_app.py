@@ -52,156 +52,6 @@ def simple_input(parent, title, prompt, default=None):
     parent.wait_window(dlg)
     return res['value']
 
-class TagEditor(tk.Toplevel):
-    def __init__(self, parent, tags):
-        super().__init__(parent)
-        self.title('Manage Tags')
-        self.geometry('750x400')
-        self.configure(bg='#FAFAFA')
-        self.tags = tags
-        self.current_tag = None   # ← para trackear la selección previa
-
-        # Listas de tags y keywords
-        self.tag_list = tk.Listbox(self, exportselection=False, bg='white', bd=1, relief='solid')
-        self.tag_list.grid(row=0, column=0, sticky='ns', padx=10, pady=10)
-        self.keyword_list = tk.Listbox(self, exportselection=False, bg='white', bd=1, relief='solid')
-        self.keyword_list.grid(row=0, column=1, sticky='ns', padx=10, pady=10)
-
-        # Entry editable para el límite
-        ttk.Label(self, text='Limit:').grid(row=0, column=2, sticky='nw', padx=(20,5), pady=(10,0))
-        self.limit_var = tk.StringVar(value='0')
-        self.limit_entry = ttk.Entry(self, textvariable=self.limit_var, width=10)
-        self.limit_entry.grid(row=0, column=2, sticky='nw', padx=(60,10), pady=(10,0))
-
-        # Botones...
-        btn_frame = ttk.Frame(self, padding=10)
-        btn_frame.grid(row=1, column=0, columnspan=3)
-        btns = [
-            ('Add Tag', self.add_tag),
-            ('Edit Tag', self.edit_tag),
-            ('Remove Tag', self.remove_tag),
-            ('Add Keyword', self.add_keyword),
-            ('Edit Keyword', self.edit_keyword),
-            ('Remove Keyword', self.remove_keyword),
-            ('Save', self.save)
-        ]
-        for idx, (txt, cmd) in enumerate(btns):
-            ttk.Button(btn_frame, text=txt, command=cmd).grid(row=0, column=idx, padx=5)
-
-        for tag in self.tags:
-            self.tag_list.insert('end', tag)
-        # Ahora bind directo, pasando el evento
-        self.tag_list.bind('<<ListboxSelect>>', self.load_keywords)
-
-    def load_keywords(self, event=None):
-        # ① Antes de cambiar de tag, salva el límite de la anterior
-        if self.current_tag is not None:
-            try:
-                self.tags[self.current_tag]['limit'] = int(self.limit_var.get())
-            except ValueError:
-                pass
-
-        sel = self.tag_list.curselection()
-        if not sel:
-            return
-        tag = self.tag_list.get(sel[0])
-        self.current_tag = tag
-
-        # ② Cargar keywords
-        self.keyword_list.delete(0, 'end')
-        for kw in self.tags[tag]["keywords"]:
-            self.keyword_list.insert('end', kw)
-        # ③ Precargar el límite en el Entry
-        self.limit_var.set(str(self.tags[tag]["limit"]))
-
-    def add_tag(self):
-        name = simple_input(self, 'New Tag', 'Tag name:')
-        if name and name not in self.tags:
-            self.tags[name] = {"keywords": [], "limit": 0}
-            self.tag_list.insert('end', name)
-
-    def edit_tag(self):
-        sel = self.tag_list.curselection()
-        if not sel:
-            return
-        idx = sel[0]
-        old = self.tag_list.get(idx)
-        new = simple_input(self, 'Edit Tag', f'New name for tag "{old}":', default=old)
-        if new and new != old and new not in self.tags:
-            self.tags[new] = self.tags.pop(old)
-            self.tag_list.delete(idx)
-            self.tag_list.insert(idx, new)
-            self.tag_list.selection_set(idx)
-
-    def remove_tag(self):
-        sel = self.tag_list.curselection()
-        if not sel:
-            return
-        idx = sel[0]
-        tag = self.tag_list.get(idx)
-        if messagebox.askyesno('Confirm', f'Remove tag "{tag}"?'):
-            del self.tags[tag]
-            self.tag_list.delete(idx)
-            self.keyword_list.delete(0, 'end')
-
-    def add_keyword(self):
-        sel = self.tag_list.curselection()
-        if not sel:
-            return
-        tag = self.tag_list.get(sel[0])
-        kw = simple_input(self, 'New Keyword', 'Keyword:')
-        if kw:
-            self.tags[tag]["keywords"].append(kw)
-            self.keyword_list.insert('end', kw)
-
-    def edit_keyword(self):
-        sel = self.tag_list.curselection()
-        ksel = self.keyword_list.curselection()
-        if not (sel and ksel):
-            return
-        tag = self.tag_list.get(sel[0])
-        old = self.keyword_list.get(ksel[0])
-        new = simple_input(self, 'Edit Keyword', f'New value for keyword "{old}":', default=old)
-        if new and new != old:
-            self.tags[tag]["keywords"][ksel[0]] = new
-            self.keyword_list.delete(ksel[0])
-            self.keyword_list.insert(ksel[0], new)
-            self.keyword_list.selection_set(ksel[0])
-
-    def edit_limit(self):
-        sel = self.tag_list.curselection()
-        if not sel:
-            return
-        tag = self.tag_list.get(sel[0])
-        old = self.tags[tag]["limit"]
-        new = simple_input(self, 'Edit Limit', f'New limit for "{tag}":', default=str(old))
-        if new.isdigit():
-            self.tags[tag]["limit"] = int(new)
-            self.limit_var.set(new)
-
-    def remove_keyword(self):
-        sel = self.tag_list.curselection()
-        ksel = self.keyword_list.curselection()
-        if not (sel and ksel):
-            return
-        tag = self.tag_list.get(sel[0])
-        kw = self.keyword_list.get(ksel[0])
-        if messagebox.askyesno('Confirm', f'Remove keyword "{kw}"?'):
-            self.tags[tag]["keywords"].remove(kw)
-            self.keyword_list.delete(ksel[0])
-
-    def save(self):
-        # ④ Antes de cerrar, asegúrate de guardar el limit de la etiqueta actual
-        if self.current_tag:
-            try:
-                self.tags[self.current_tag]['limit'] = int(self.limit_var.get())
-            except ValueError:
-                pass
-
-        save_tags(self.tags)
-        messagebox.showinfo('Saved', 'Tags (incluyendo límites) guardados en tags.json')
-        self.destroy()
-
 class PurchaseTaggerUI(ctk.CTk):
     def __init__(self):
         ctk.set_appearance_mode("light")
@@ -828,15 +678,232 @@ class PurchaseTaggerUI(ctk.CTk):
         self.summary_frame.update_idletasks()
 
     def _build_tags_view(self):
-        self._build_placeholder_view("Tags")
-        ctk.CTkButton(
+        self.workspace.grid_rowconfigure(1, weight=1)
+        self._build_page_header(
             self.workspace,
-            text="Manage Tags",
-            command=self.open_tag_editor,
-        ).grid(row=1, column=0, sticky="w", padx=24, pady=(0, 24))
+            "Tags",
+            "Manage tag names, keyword matching, and monthly limits.",
+        )
+
+        content = ctk.CTkFrame(self.workspace, fg_color="transparent")
+        content.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 14))
+        content.grid_columnconfigure(0, weight=1)
+        content.grid_columnconfigure(1, weight=2)
+        content.grid_rowconfigure(0, weight=1)
+
+        left_panel = self._panel(content, row=0, column=0, sticky="nsew", padx=(0, 12))
+        left_panel.grid_columnconfigure(0, weight=1)
+        left_panel.grid_rowconfigure(1, weight=1)
+        ctk.CTkLabel(
+            left_panel,
+            text="Tag List",
+            text_color="#171a20",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 8))
+        self.tag_listbox = tk.Listbox(left_panel, exportselection=False, bg="white", bd=0, relief="flat")
+        self.tag_listbox.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 10))
+        self.tag_listbox.bind("<<ListboxSelect>>", self.load_tag_details)
+
+        tag_buttons = ctk.CTkFrame(left_panel, fg_color="transparent")
+        tag_buttons.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 14))
+        for index in range(3):
+            tag_buttons.grid_columnconfigure(index, weight=1)
+        ctk.CTkButton(tag_buttons, text="Add", command=self.add_tag).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ctk.CTkButton(tag_buttons, text="Edit", command=self.edit_tag).grid(row=0, column=1, sticky="ew", padx=(0, 6))
+        ctk.CTkButton(tag_buttons, text="Remove", command=self.remove_tag, fg_color="#dc2626").grid(
+            row=0, column=2, sticky="ew"
+        )
+
+        right_panel = self._panel(content, row=0, column=1, sticky="nsew")
+        right_panel.grid_columnconfigure(0, weight=1)
+        right_panel.grid_rowconfigure(3, weight=1)
+        ctk.CTkLabel(
+            right_panel,
+            text="Selected Tag",
+            text_color="#171a20",
+            font=ctk.CTkFont(size=14, weight="bold"),
+        ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 8))
+        ctk.CTkLabel(right_panel, text="Monthly Limit", text_color="#6b7280", font=ctk.CTkFont(size=11)).grid(
+            row=1, column=0, sticky="w", padx=14
+        )
+        self.limit_var = tk.StringVar(value="")
+        ctk.CTkEntry(right_panel, textvariable=self.limit_var).grid(
+            row=2, column=0, sticky="ew", padx=14, pady=(2, 10)
+        )
+        self.keyword_listbox = tk.Listbox(right_panel, exportselection=False, bg="white", bd=0, relief="flat")
+        self.keyword_listbox.grid(row=3, column=0, sticky="nsew", padx=14, pady=(0, 10))
+
+        keyword_buttons = ctk.CTkFrame(right_panel, fg_color="transparent")
+        keyword_buttons.grid(row=4, column=0, sticky="ew", padx=14, pady=(0, 14))
+        for index in range(4):
+            keyword_buttons.grid_columnconfigure(index, weight=1)
+        ctk.CTkButton(keyword_buttons, text="Add Keyword", command=self.add_keyword).grid(
+            row=0, column=0, sticky="ew", padx=(0, 6)
+        )
+        ctk.CTkButton(keyword_buttons, text="Edit", command=self.edit_keyword).grid(
+            row=0, column=1, sticky="ew", padx=(0, 6)
+        )
+        ctk.CTkButton(keyword_buttons, text="Remove", command=self.remove_keyword, fg_color="#dc2626").grid(
+            row=0, column=2, sticky="ew", padx=(0, 6)
+        )
+        ctk.CTkButton(keyword_buttons, text="Save", command=self.save_tags_from_view, fg_color="#16a34a").grid(
+            row=0, column=3, sticky="ew"
+        )
+
+        self.refresh_tag_lists()
 
     def open_tag_editor(self):
-        TagEditor(self, self.tags)
+        self.show_view("Tags")
+
+    def refresh_tag_lists(self):
+        if "tag_listbox" not in self.__dict__:
+            return
+        self.tag_listbox.delete(0, "end")
+        for tag in sorted(self.tags):
+            self.tag_listbox.insert("end", tag)
+        if "keyword_listbox" in self.__dict__:
+            self.keyword_listbox.delete(0, "end")
+        if "limit_var" in self.__dict__:
+            self.limit_var.set("")
+
+    def selected_tag_name(self):
+        if "tag_listbox" not in self.__dict__:
+            return None
+        selection = self.tag_listbox.curselection()
+        if not selection:
+            return None
+        return self.tag_listbox.get(selection[0])
+
+    def load_tag_details(self, event=None):
+        tag = self.selected_tag_name()
+        if not tag or tag not in self.tags:
+            return
+        if "keyword_listbox" in self.__dict__:
+            self.keyword_listbox.delete(0, "end")
+            for keyword in self.tags[tag].get("keywords", []):
+                self.keyword_listbox.insert("end", keyword)
+        if "limit_var" in self.__dict__:
+            self.limit_var.set(str(self.tags[tag].get("limit", 0)))
+
+    def save_current_tag_limit(self):
+        tag = self.selected_tag_name()
+        if not tag:
+            return True
+        try:
+            limit = int(self.limit_var.get().strip())
+        except ValueError:
+            messagebox.showwarning("Invalid Limit", "Monthly limit must be an integer.")
+            return False
+        self.tags[tag]["limit"] = limit
+        return True
+
+    def _set_status(self, message):
+        if "status_var" in self.__dict__:
+            self.status_var.set(message)
+
+    def _refresh_tag_filter_options(self):
+        if all(name in self.__dict__ for name in ("all_rows", "tag_menu", "tag_filter_var")):
+            self._refresh_filter_options()
+
+    def _select_tag_in_list(self, tag):
+        if "tag_listbox" not in self.__dict__ or tag not in self.tags:
+            return
+        index = sorted(self.tags).index(tag)
+        self.tag_listbox.selection_set(index)
+        self.load_tag_details()
+
+    def add_tag(self):
+        name = simple_input(self, "New Tag", "Tag name:")
+        if not name or name in self.tags:
+            return
+        self.tags[name] = {"keywords": [], "limit": 0}
+        save_tags(self.tags)
+        self.refresh_tag_lists()
+        self._select_tag_in_list(name)
+        self._refresh_tag_filter_options()
+        self._set_status(f'Added tag "{name}"')
+
+    def edit_tag(self):
+        old = self.selected_tag_name()
+        if not old:
+            return
+        new = simple_input(self, "Edit Tag", f'New name for tag "{old}":', default=old)
+        if not new or new == old or new in self.tags:
+            return
+        self.tags[new] = self.tags.pop(old)
+        for row in self.__dict__.get("all_rows", []):
+            if row[4] == old:
+                row[4] = new
+        save_tags(self.tags)
+        self.refresh_tag_lists()
+        self._select_tag_in_list(new)
+        self._refresh_tag_filter_options()
+        self._set_status(f'Renamed tag "{old}" to "{new}"')
+
+    def remove_tag(self):
+        tag = self.selected_tag_name()
+        if not tag:
+            return
+        if not messagebox.askyesno("Confirm", f'Remove tag "{tag}"?'):
+            return
+        del self.tags[tag]
+        save_tags(self.tags)
+        self.refresh_tag_lists()
+        self._refresh_tag_filter_options()
+        self._set_status(f'Removed tag "{tag}"')
+
+    def add_keyword(self):
+        tag = self.selected_tag_name()
+        if not tag:
+            return
+        keyword = simple_input(self, "New Keyword", "Keyword:")
+        if not keyword:
+            return
+        self.tags[tag].setdefault("keywords", []).append(keyword)
+        save_tags(self.tags)
+        self.load_tag_details()
+        self._set_status(f'Added keyword to "{tag}"')
+
+    def edit_keyword(self):
+        tag = self.selected_tag_name()
+        if not tag or "keyword_listbox" not in self.__dict__:
+            return
+        selection = self.keyword_listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        old = self.keyword_listbox.get(index)
+        new = simple_input(self, "Edit Keyword", f'New value for keyword "{old}":', default=old)
+        if not new or new == old:
+            return
+        self.tags[tag]["keywords"][index] = new
+        save_tags(self.tags)
+        self.load_tag_details()
+        self.keyword_listbox.selection_set(index)
+        self._set_status(f'Updated keyword for "{tag}"')
+
+    def remove_keyword(self):
+        tag = self.selected_tag_name()
+        if not tag or "keyword_listbox" not in self.__dict__:
+            return
+        selection = self.keyword_listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        keyword = self.keyword_listbox.get(index)
+        if not messagebox.askyesno("Confirm", f'Remove keyword "{keyword}"?'):
+            return
+        del self.tags[tag]["keywords"][index]
+        save_tags(self.tags)
+        self.load_tag_details()
+        self._set_status(f'Removed keyword from "{tag}"')
+
+    def save_tags_from_view(self):
+        if not self.save_current_tag_limit():
+            return
+        save_tags(self.tags)
+        self._refresh_tag_filter_options()
+        self._set_status("Saved tags")
 
     def browse_pdf(self):
         files = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
@@ -932,6 +999,7 @@ class PurchaseTaggerUI(ctk.CTk):
                 save_tags(self.tags)
         if "all_rows" in self.__dict__:
             self.apply_filter()
+            self._set_status(f'Assigned "{tag}" to purchase')
 
     def create_and_assign(self, item_iid):
         row = self._row_for_item(item_iid)
@@ -945,6 +1013,7 @@ class PurchaseTaggerUI(ctk.CTk):
             if desc not in self.tags[name]["keywords"]:
                 self.tags[name]["keywords"].append(desc)
         save_tags(self.tags)
+        self._refresh_tag_filter_options()
         self.assign_tag(item_iid, name)
 
     def open_summary(self):

@@ -72,6 +72,35 @@ class SimpleVar:
         self.value = value
 
 
+class FakeListbox:
+    def __init__(self):
+        self.items = []
+        self.selection = []
+
+    def delete(self, first, last=None):
+        if first == 0 and last == "end":
+            self.items = []
+            self.selection = []
+            return
+        del self.items[first]
+        self.selection = [index for index in self.selection if index != first]
+
+    def insert(self, index, value):
+        if index == "end":
+            self.items.append(value)
+        else:
+            self.items.insert(index, value)
+
+    def curselection(self):
+        return tuple(self.selection)
+
+    def get(self, index):
+        return self.items[index]
+
+    def selection_set(self, index):
+        self.selection = [index]
+
+
 class FakeFrame:
     def __init__(self, children=None):
         self.children = list(children or [])
@@ -447,6 +476,131 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.open_summary()
 
         self.assertEqual(calls, ["Summaries"])
+
+    def test_open_tag_editor_routes_to_tags_workspace(self):
+        app = object.__new__(PurchaseTaggerUI)
+        calls = []
+        app.show_view = calls.append
+
+        app.open_tag_editor()
+
+        self.assertEqual(calls, ["Tags"])
+
+    def test_refresh_tag_lists_sorts_tags_and_clears_details(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {
+            "Travel": {"keywords": ["uber"], "limit": 100},
+            "Dining": {"keywords": ["cafe"], "limit": 50},
+        }
+        app.tag_listbox = FakeListbox()
+        app.keyword_listbox = FakeListbox()
+        app.keyword_listbox.items = ["old"]
+        app.limit_var = SimpleVar("123")
+
+        app.refresh_tag_lists()
+
+        self.assertEqual(app.tag_listbox.items, ["Dining", "Travel"])
+        self.assertEqual(app.keyword_listbox.items, [])
+        self.assertEqual(app.limit_var.get(), "")
+
+    def test_load_tag_details_populates_keywords_and_limit(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["cafe", "lunch"], "limit": 75}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("")
+
+        app.load_tag_details()
+
+        self.assertEqual(app.keyword_listbox.items, ["cafe", "lunch"])
+        self.assertEqual(app.limit_var.get(), "75")
+
+    def test_save_current_tag_limit_rejects_invalid_integer(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 75}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.limit_var = SimpleVar("oops")
+
+        with patch("purchase_tagger_app.messagebox.showwarning") as warning:
+            result = app.save_current_tag_limit()
+
+        self.assertFalse(result)
+        self.assertEqual(app.tags["Dining"]["limit"], 75)
+        warning.assert_called_once()
+
+    def test_tag_workspace_add_edit_remove_tag(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {}
+        app.tag_listbox = FakeListbox()
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("")
+        app.status_var = SimpleVar("")
+
+        with patch("purchase_tagger_app.simple_input", return_value="Dining"), \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.add_tag()
+
+        self.assertEqual(app.tags, {"Dining": {"keywords": [], "limit": 0}})
+        self.assertEqual(app.tag_listbox.items, ["Dining"])
+        save_tags.assert_called_once_with(app.tags)
+
+        app.tag_listbox.selection_set(0)
+        with patch("purchase_tagger_app.simple_input", return_value="Food"), \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.edit_tag()
+
+        self.assertEqual(app.tags, {"Food": {"keywords": [], "limit": 0}})
+        self.assertEqual(app.tag_listbox.items, ["Food"])
+        save_tags.assert_called_once_with(app.tags)
+
+        app.tag_listbox.selection_set(0)
+        with patch("purchase_tagger_app.messagebox.askyesno", return_value=True), \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.remove_tag()
+
+        self.assertEqual(app.tags, {})
+        self.assertEqual(app.tag_listbox.items, [])
+        save_tags.assert_called_once_with(app.tags)
+
+    def test_tag_workspace_add_edit_remove_keyword(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 0}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("0")
+        app.status_var = SimpleVar("")
+
+        with patch("purchase_tagger_app.simple_input", return_value="cafe"), \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.add_keyword()
+
+        self.assertEqual(app.tags["Dining"]["keywords"], ["cafe"])
+        self.assertEqual(app.keyword_listbox.items, ["cafe"])
+        save_tags.assert_called_once_with(app.tags)
+
+        app.keyword_listbox.selection_set(0)
+        with patch("purchase_tagger_app.simple_input", return_value="lunch"), \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.edit_keyword()
+
+        self.assertEqual(app.tags["Dining"]["keywords"], ["lunch"])
+        self.assertEqual(app.keyword_listbox.items, ["lunch"])
+        save_tags.assert_called_once_with(app.tags)
+
+        app.keyword_listbox.selection_set(0)
+        with patch("purchase_tagger_app.messagebox.askyesno", return_value=True), \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.remove_keyword()
+
+        self.assertEqual(app.tags["Dining"]["keywords"], [])
+        self.assertEqual(app.keyword_listbox.items, [])
+        save_tags.assert_called_once_with(app.tags)
 
     def test_draw_summary_shows_empty_state_before_currency_state(self):
         app = object.__new__(PurchaseTaggerUI)
