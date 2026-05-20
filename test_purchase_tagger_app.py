@@ -112,6 +112,51 @@ class FakeWidget:
         pass
 
 
+class FakeCanvas:
+    def __init__(self):
+        self.widget = FakeWidget()
+
+    def get_tk_widget(self):
+        return self.widget
+
+    def draw(self):
+        pass
+
+
+class FakeAxes:
+    def pie(self, *args, **kwargs):
+        pass
+
+    def bar(self, *args, **kwargs):
+        pass
+
+    def plot(self, *args, **kwargs):
+        pass
+
+    def set_title(self, *args, **kwargs):
+        pass
+
+    def set_ylabel(self, *args, **kwargs):
+        pass
+
+    def tick_params(self, *args, **kwargs):
+        pass
+
+    def set_xticks(self, *args, **kwargs):
+        pass
+
+    def set_xticklabels(self, *args, **kwargs):
+        pass
+
+    def legend(self, *args, **kwargs):
+        pass
+
+
+class FakeFigure:
+    def tight_layout(self):
+        pass
+
+
 class FakeSummaryTree(FakeWidget):
     instances = []
 
@@ -418,6 +463,49 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         self.assertTrue(app.summary_frame.winfo_children()[0].destroyed)
         self.assertEqual(label.call_args.kwargs["text"], "Load purchases to see summaries.")
+
+    def test_draw_summary_uses_all_rows_independent_of_purchase_filter(self):
+        all_rows = [
+            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "90.00", "CRC", "Groceries"],
+        ]
+        app = object.__new__(PurchaseTaggerUI)
+        app.all_rows = all_rows
+        app.filtered_rows = [all_rows[0]]
+        app.summary_frame = FakeFrame()
+        app.summary_currency_vars = {
+            "USD": SimpleVar(True),
+            "CRC": SimpleVar(True),
+        }
+        app.summary_month_var = SimpleVar("Todos")
+        app.summary_choice_var = SimpleVar("Spend by Tag")
+        app.tags = {}
+        with patch("purchase_tagger_app.filter_rows_by_month", side_effect=lambda rows, month: list(rows)) as month_filter, \
+                patch("purchase_tagger_app.summary_aggregates", return_value={
+                    "tag_totals": {"Dining": 80, "Groceries": 90},
+                    "monthly_totals": {},
+                    "cumulative_points": [],
+                }) as aggregates, \
+                patch("purchase_tagger_app.plt.subplots", return_value=(FakeFigure(), FakeAxes())), \
+                patch("purchase_tagger_app.FigureCanvasTkAgg", return_value=FakeCanvas()):
+            app.draw_summary()
+
+        self.assertEqual(month_filter.call_args.args[0], all_rows)
+        self.assertEqual(aggregates.call_args.args[0], all_rows)
+
+    def test_clear_summary_frame_destroys_canvas_widget_and_clears_refs(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.summary_frame = FakeFrame([FakeWidget()])
+        app.summary_canvas = FakeCanvas()
+        app.summary_figure = object()
+
+        with patch("purchase_tagger_app.plt.close") as close:
+            app._clear_summary_frame()
+
+        self.assertTrue(app.summary_canvas is None)
+        self.assertTrue(app.summary_figure is None)
+        self.assertTrue(app.summary_frame.winfo_children()[0].destroyed)
+        self.assertTrue(close.called)
 
     def test_average_spend_table_marks_rows_over_limit(self):
         app = object.__new__(PurchaseTaggerUI)

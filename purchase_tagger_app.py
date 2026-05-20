@@ -331,6 +331,8 @@ class PurchaseTaggerUI(ctk.CTk):
             "limit_var",
         ):
             if name in self.__dict__:
+                if name == "summary_canvas" and self.summary_canvas is not None:
+                    self.summary_canvas.get_tk_widget().destroy()
                 if name == "summary_figure" and self.summary_figure is not None:
                     plt.close(self.summary_figure)
                 delattr(self, name)
@@ -622,7 +624,7 @@ class PurchaseTaggerUI(ctk.CTk):
         )
         self.summary_chart_menu.grid(row=0, column=0, padx=10, pady=10, sticky="w")
 
-        rows = self.filtered_rows or self.all_rows
+        rows = self.all_rows
         month_values = [ALL_MONTHS] + available_months(rows)
         self.summary_month_var = tk.StringVar(value=ALL_MONTHS)
         self.summary_month_menu = ctk.CTkOptionMenu(
@@ -654,6 +656,9 @@ class PurchaseTaggerUI(ctk.CTk):
         self.draw_summary()
 
     def _clear_summary_frame(self):
+        if "summary_canvas" in self.__dict__ and self.summary_canvas is not None:
+            self.summary_canvas.get_tk_widget().destroy()
+            self.summary_canvas = None
         if "summary_figure" in self.__dict__ and self.summary_figure is not None:
             plt.close(self.summary_figure)
             self.summary_figure = None
@@ -671,7 +676,7 @@ class PurchaseTaggerUI(ctk.CTk):
     def draw_summary(self):
         self._clear_summary_frame()
 
-        rows = self.filtered_rows or self.all_rows
+        rows = self.all_rows
         if not rows:
             self._show_summary_message("Load purchases to see summaries.")
             return
@@ -945,201 +950,6 @@ class PurchaseTaggerUI(ctk.CTk):
     def open_summary(self):
         """Route legacy summary action to the workspace summary view."""
         self.show_view("Summaries")
-        return
-        # 1️⃣ figure out which currencies appear
-        rows = getattr(self, 'filtered_rows', []) or getattr(self, 'all_rows', [])
-        self.apply_filter()
-        currencies = sorted({r[3] for r in rows})
-        self.cur_vars = {cur: tk.BooleanVar(value=True) for cur in currencies}
-
-        # 2️⃣ chart options
-        opts = ['Spend by Tag', 'Monthly Spend', 'Cumulative Spend', 'Límite vs Gasto por Tag', 'Gasto Promedio por Tag/Mes']
-
-        # 3️⃣ build window
-        win = tk.Toplevel(self)
-        win.title('Summary')
-        win.geometry('900x600')
-
-        sel = tk.StringVar(value=opts[0])
-        cb = ttk.Combobox(win, values=opts, textvariable=sel, state='readonly')
-        cb.grid(row=0, column=0, padx=10, pady=10, sticky='w')
-
-        # currency checkboxes
-        cur_frame = ttk.LabelFrame(win, text="Currencies")
-        cur_frame.grid(row=0, column=1, padx=10, pady=10, sticky='e')
-        for i, cur in enumerate(currencies):
-            ttk.Checkbutton(
-                cur_frame,
-                text=cur,
-                variable=self.cur_vars[cur],
-                command=lambda: draw()
-            ).grid(row=0, column=i, padx=5)
-
-        chart_frame = ttk.Frame(win)
-        chart_frame.grid(row=1, column=0, columnspan=2, sticky='nsew')
-        win.grid_rowconfigure(1, weight=1)
-        win.grid_columnconfigure(0, weight=1)
-
-        # months list
-        rows = getattr(self, 'filtered_rows', []) or getattr(self, 'all_rows', [])
-        opciones_mes = ['Todos'] + available_months(rows)
-
-        # month filter
-        summary_month_var = tk.StringVar(value='Todos')
-        ttk.Label(win, text="Mes:").grid(row=0, column=2, padx=(20, 5), sticky='w')
-        ttk.Combobox(win, values=opciones_mes, textvariable=summary_month_var, state='readonly', width=10) \
-            .grid(row=0, column=3, padx=(0, 10), sticky='w')
-
-        def draw():
-            # clear old charts
-            for w in chart_frame.winfo_children():
-                w.destroy()
-
-            # selected currencies
-            selected = {cur for cur, var in self.cur_vars.items() if var.get()}
-            if not selected:
-                ttk.Label(chart_frame, text="No currencies selected.").pack()
-                return
-
-            ows = getattr(self, 'filtered_rows', []) or getattr(self, 'all_rows', [])
-            sel_mes = summary_month_var.get()
-
-            data_rows = filter_rows_by_month(ows, sel_mes)
-
-            # aggregates
-            aggregates = summary_aggregates(data_rows, selected)
-            tag_totals = aggregates["tag_totals"]
-            monthly = aggregates["monthly_totals"]
-            cumulative_points = aggregates["cumulative_points"]
-
-            # plot choice
-            choice = sel.get()
-            if choice == 'Spend by Tag':
-                fig, ax = plt.subplots(figsize=(5, 4))
-                ax.pie(tag_totals.values(), labels=tag_totals.keys(), autopct='%1.1f%%')
-                ax.set_title('Spend by Tag')
-
-            elif choice == 'Monthly Spend':
-                fig, ax = plt.subplots(figsize=(5, 4))
-                ms = sorted(monthly.keys())
-                ax.bar(ms, [monthly[m] for m in ms])
-                ax.set_title('Monthly Spend')
-                ax.set_xticklabels(ms, rotation=45)
-
-            elif choice == 'Cumulative Spend':
-                fig, ax = plt.subplots(figsize=(5, 4))
-                xs = [date_label for date_label, _running in cumulative_points]
-                ys = [running for _date_label, running in cumulative_points]
-                ax.plot(xs, ys, marker='o')
-                ax.set_title('Cumulative Spend Over Time')
-                ax.set_xticklabels(xs, rotation=45)
-                ax.set_ylabel('Total')
-
-            elif choice == 'Límite vs Gasto por Tag':
-                labels = list(tag_totals.keys())
-                gastos = [tag_totals[tag] for tag in labels]
-                limites = [self.tags.get(tag, {}).get('limit', 0) for tag in labels]
-
-                fig, ax = plt.subplots(figsize=(6, 4))
-                x = range(len(labels))
-                ax.bar([i - 0.2 for i in x], gastos, width=0.4, label='Gasto')
-                ax.bar([i + 0.2 for i in x], limites, width=0.4, label='Límite')
-                ax.set_xticks(list(x))
-                ax.set_xticklabels(labels, rotation=45, ha='right')
-                ax.set_title('Comparación: Límite vs Gasto por Tag')
-                ax.legend()
-
-
-            elif choice == 'Gasto Promedio por Tag/Mes':
-
-                # límites
-                limits = {}
-                try:
-                    limits_data = load_tags()
-                    limits = {t: info.get('limit', 0) for t, info in limits_data.items()}
-                except Exception:
-                    pass
-
-                summary_data = average_spend_by_tag_month(data_rows, selected, limits)
-                tag_totals = summary_data["tag_month_totals"]
-                tag_global_totals = summary_data["tag_global_totals"]
-                promedio_tag = summary_data["tag_average_by_month"]
-                totals = summary_data["totals"]
-
-                # columnas de detalle
-                months = summary_data["months"]
-                currencies_by_month = summary_data["currencies_by_month"]
-
-                # tabla
-                for w in chart_frame.winfo_children():
-                    w.destroy()
-                chart_frame.grid_rowconfigure(0, weight=1)
-                chart_frame.grid_columnconfigure(0, weight=1)
-
-                # 👇 añadimos "Tag Total"
-                cols = ['Tag', 'Límite', 'Promedio', 'Tag Total'] + [f"{mk}_{cur}" for mk in months for cur in
-                                                                     currencies_by_month[mk]]
-                summary_tree = ttk.Treeview(chart_frame, columns=cols, show='headings')
-                summary_tree.grid(row=0, column=0, sticky='nsew')
-
-                vsb = ttk.Scrollbar(chart_frame, orient='vertical', command=summary_tree.yview)
-                hsb = ttk.Scrollbar(chart_frame, orient='horizontal', command=summary_tree.xview)
-                vsb.grid(row=0, column=1, sticky='ns')
-                hsb.grid(row=1, column=0, sticky='ew')
-                summary_tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-
-                summary_tree.heading('Tag', text='Tag', anchor='w')
-                summary_tree.column('Tag', width=120, anchor='w', stretch=True)
-                summary_tree.heading('Límite', text='Límite', anchor='e')
-                summary_tree.column('Límite', width=80, anchor='e', stretch=True)
-                summary_tree.heading('Promedio', text='Promedio', anchor='e')
-                summary_tree.column('Promedio', width=80, anchor='e', stretch=True)
-                summary_tree.heading('Tag Total', text='Tag Total', anchor='e')
-                summary_tree.column('Tag Total', width=100, anchor='e', stretch=True)
-
-                for col in cols[4:]:
-                    mk, cur = col.split('_')
-                    mname = datetime.strptime(mk, '%Y-%m').strftime('%b %Y')
-                    summary_tree.heading(col, text=f"{mname} {cur}", anchor='center')
-                    summary_tree.column(col, width=80, anchor='e', stretch=True)
-
-                summary_tree.tag_configure('over_limit', foreground='red')
-
-                for tg in sorted(tag_totals):
-                    lim = limits.get(tg, 0)
-                    prom = promedio_tag.get(tg, 0)
-                    total_tag = tag_global_totals.get(tg, 0)
-                    lim_text = f"{lim:,.2f}"
-                    prom_text = f"{prom:,.2f}" if prom else ''
-                    total_text = f"{total_tag:,.2f}" if total_tag else ''
-                    detalle_vals = [
-                        f"{tag_totals[tg].get(mk, {}).get(cur):,.2f}" if tag_totals[tg].get(mk, {}).get(cur) else ''
-                        for mk in months for cur in currencies_by_month[mk]
-                    ]
-                    tags_row = ['over_limit'] if summary_data["over_limit_by_tag"].get(tg) else []
-                    summary_tree.insert('', 'end', values=[tg, lim_text, prom_text, total_text, *detalle_vals],
-                                        tags=tags_row)
-
-                sum_lim = summary_data["total_limit"]
-                sum_prom = summary_data["total_average"]
-                sum_total = summary_data["total_spend"]
-                total_detail = [
-                    f"{totals.get(mk, {}).get(cur):,.2f}" if totals.get(mk, {}).get(cur) else ''
-                    for mk in months for cur in currencies_by_month[mk]
-                ]
-                total_tags = ['over_limit'] if summary_data["total_over_limit"] else []
-                summary_tree.insert('', 'end', values=[
-                    'Total', f"{sum_lim:,.2f}", f"{sum_prom:,.2f}", f"{sum_total:,.2f}", *total_detail
-                ], tags=total_tags)
-
-                chart_frame.update_idletasks()
-
-            if choice in ['Spend by Tag','Monthly Spend','Cumulative Spend','Límite vs Gasto por Tag']:
-                FigureCanvasTkAgg(fig, master=chart_frame).get_tk_widget().pack(fill='both', expand=True)
-
-        summary_month_var.trace_add('write', lambda *a: draw())
-        cb.bind('<<ComboboxSelected>>', lambda e: draw())
-        draw()
 
     def sort_column(self, col, reverse):
         data = [(self.tree.set(k, col), k) for k in self.tree.get_children('')]
