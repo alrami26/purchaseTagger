@@ -213,6 +213,86 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.month_menu.values, ["Todos", "2025-01", "2025-02"])
         self.assertEqual(app.tag_menu.values, ["Todos", "Groceries", "Shopping"])
 
+    def test_apply_filter_resets_stale_filters_before_computing_rows(self):
+        rows = [
+            ["01-ENE-25", "APPLE STORE", "10.00", "USD", "Shopping"],
+            ["02-FEB-25", "BANANA MARKET", "20.00", "CRC", "Groceries"],
+        ]
+        app = object.__new__(PurchaseTaggerUI)
+        app.all_rows = rows
+        app.filtered_rows = []
+        app.tree_item_rows = {}
+        app.search_var = SimpleVar("")
+        app.currency_var = SimpleVar("EUR")
+        app.month_var = SimpleVar("2024-12")
+        app.tag_filter_var = SimpleVar("Travel")
+        app.total_var = SimpleVar("")
+        app.visible_count_var = SimpleVar("")
+        app.kpi_vars = {
+            "total_rows": SimpleVar("0"),
+            "visible_rows": SimpleVar("0"),
+            "untagged_rows": SimpleVar("0"),
+            "currency_count": SimpleVar("0"),
+            "over_limit_tags": SimpleVar("0"),
+        }
+        app.currency_menu = FakeMenu()
+        app.month_menu = FakeMenu()
+        app.tag_menu = FakeMenu()
+        app.tags = {}
+        app.natag = "N/A"
+
+        app.apply_filter()
+
+        self.assertEqual(app.currency_var.get(), "All currencies")
+        self.assertEqual(app.month_var.get(), "Todos")
+        self.assertEqual(app.tag_filter_var.get(), "Todos")
+        self.assertEqual(app.filtered_rows, rows)
+        self.assertEqual(app.total_var.get(), "Totals: CRC 20.00; USD 10.00")
+        self.assertEqual(app.visible_count_var.get(), "Showing 2 purchases")
+
+    def test_assign_tag_reapplies_active_tag_filter(self):
+        rows = [
+            ["01-ENE-25", "APPLE STORE", "10.00", "USD", "N/A"],
+            ["02-ENE-25", "BANANA MARKET", "20.00", "USD", "N/A"],
+        ]
+        app = object.__new__(PurchaseTaggerUI)
+        app.all_rows = rows
+        app.filtered_rows = list(rows)
+        app.tree_item_rows = {
+            "item-a": rows[0],
+            "item-b": rows[1],
+        }
+        app.tree = FakeTree(["item-a", "item-b"])
+        app.tree.items["item-a"] = rows[0]
+        app.tree.items["item-b"] = rows[1]
+        app.search_var = SimpleVar("")
+        app.currency_var = SimpleVar("All currencies")
+        app.month_var = SimpleVar("Todos")
+        app.tag_filter_var = SimpleVar("N/A")
+        app.total_var = SimpleVar("")
+        app.visible_count_var = SimpleVar("")
+        app.kpi_vars = {
+            "total_rows": SimpleVar("0"),
+            "visible_rows": SimpleVar("0"),
+            "untagged_rows": SimpleVar("0"),
+            "currency_count": SimpleVar("0"),
+            "over_limit_tags": SimpleVar("0"),
+        }
+        app.currency_menu = FakeMenu()
+        app.month_menu = FakeMenu()
+        app.tag_menu = FakeMenu()
+        app.tags = {"Groceries": {"keywords": [], "limit": 0}}
+        app.natag = "N/A"
+
+        with patch("purchase_tagger_app.save_tags"):
+            app.assign_tag("item-a", "Groceries")
+
+        self.assertEqual(app.filtered_rows, [rows[1]])
+        self.assertEqual(list(app.tree_item_rows.values()), [rows[1]])
+        self.assertEqual(app.visible_count_var.get(), "Showing 1 purchases")
+        self.assertEqual(app.total_var.get(), "Totals: USD 20.00")
+        self.assertEqual(app.kpi_vars["untagged_rows"].get(), "1")
+
     def test_clear_workspace_widget_refs_preserves_app_state_vars(self):
         app = object.__new__(PurchaseTaggerUI)
         app.tree = object()

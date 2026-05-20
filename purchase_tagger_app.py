@@ -628,6 +628,7 @@ class PurchaseTaggerUI(ctk.CTk):
         self.status_var.set(f"Loaded and tagged {len(self.all_rows)} purchases")
 
     def apply_filter(self):
+        self._refresh_filter_options()
         selected_currency = self._var_value("currency_var", "All currencies")
         currencies = set() if selected_currency == "All currencies" else {selected_currency}
         self.filtered_rows = filter_purchase_rows(
@@ -639,7 +640,6 @@ class PurchaseTaggerUI(ctk.CTk):
         )
         self.tree_item_rows.clear()
         if not self._has_live_tree():
-            self._refresh_filter_options()
             self._update_kpis()
             self.total_var.set(format_totals(self.filtered_rows))
             if "visible_count_var" in self.__dict__:
@@ -653,7 +653,6 @@ class PurchaseTaggerUI(ctk.CTk):
             self.tree_item_rows[iid] = row
         self.tree.tag_configure("even", background="#ffffff")
         self.tree.tag_configure("odd", background="#fafbfc")
-        self._refresh_filter_options()
         self._update_kpis()
         self.total_var.set(format_totals(self.filtered_rows))
         if "visible_count_var" in self.__dict__:
@@ -691,6 +690,8 @@ class PurchaseTaggerUI(ctk.CTk):
             if desc not in self.tags[tag]["keywords"]:
                 self.tags[tag]["keywords"].append(desc)
                 save_tags(self.tags)
+        if "all_rows" in self.__dict__:
+            self.apply_filter()
 
     def create_and_assign(self, item_iid):
         row = self._row_for_item(item_iid)
