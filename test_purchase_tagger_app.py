@@ -628,6 +628,66 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.tag_listbox.items, [])
         save_tags.assert_called_once_with(app.tags)
 
+    def test_add_tag_preserves_current_limit_edit(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 75}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("91.5")
+        app.status_var = SimpleVar("")
+        app.current_tag_name = "Dining"
+
+        with patch("purchase_tagger_app.simple_input", return_value="Travel"), \
+                patch("purchase_tagger_app.save_tags"):
+            app.add_tag()
+
+        self.assertEqual(app.tags["Dining"]["limit"], 91.5)
+        self.assertEqual(app.tags["Travel"], {"keywords": [], "limit": 0})
+
+    def test_edit_tag_carries_current_limit_edit_to_renamed_tag(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 75}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("91.5")
+        app.status_var = SimpleVar("")
+        app.current_tag_name = "Dining"
+
+        with patch("purchase_tagger_app.simple_input", return_value="Food"), \
+                patch("purchase_tagger_app.save_tags"):
+            app.edit_tag()
+
+        self.assertNotIn("Dining", app.tags)
+        self.assertEqual(app.tags["Food"]["limit"], 91.5)
+
+    def test_invalid_current_limit_blocks_add_and_edit_tag_actions(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 75}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("bad limit")
+        app.status_var = SimpleVar("")
+        app.current_tag_name = "Dining"
+
+        with patch("purchase_tagger_app.simple_input") as simple_input, \
+                patch("purchase_tagger_app.messagebox.showwarning") as warning, \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.add_tag()
+            app.edit_tag()
+
+        self.assertEqual(app.tags, {"Dining": {"keywords": [], "limit": 75}})
+        self.assertEqual(app.tag_listbox.items, ["Dining"])
+        self.assertEqual(app.limit_var.get(), "bad limit")
+        simple_input.assert_not_called()
+        self.assertEqual(warning.call_count, 2)
+        save_tags.assert_not_called()
+
     def test_remove_tag_resets_loaded_rows_and_reapplies_filter(self):
         rows = [
             ["01-ENE-25", "CAFE", "10.00", "USD", "Dining"],

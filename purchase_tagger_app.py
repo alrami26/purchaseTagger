@@ -833,6 +833,8 @@ class PurchaseTaggerUI(ctk.CTk):
         self.load_tag_details()
 
     def add_tag(self):
+        if not self.save_current_tag_limit():
+            return
         name = simple_input(self, "New Tag", "Tag name:")
         if not name or name in self.tags:
             return
@@ -846,6 +848,8 @@ class PurchaseTaggerUI(ctk.CTk):
     def edit_tag(self):
         old = self.selected_tag_name()
         if not old:
+            return
+        if not self.save_current_tag_limit(old):
             return
         new = simple_input(self, "Edit Tag", f'New name for tag "{old}":', default=old)
         if not new or new == old or new in self.tags:
