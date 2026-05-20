@@ -1,21 +1,5 @@
 import unittest
-import sys
-import types
 from unittest.mock import patch
-
-purchase_extractor = types.ModuleType("purchase_extractor")
-purchase_extractor.process_purchases = lambda pdf: []
-sys.modules["purchase_extractor"] = purchase_extractor
-
-matplotlib = types.ModuleType("matplotlib")
-pyplot = types.ModuleType("matplotlib.pyplot")
-backends = types.ModuleType("matplotlib.backends")
-backend_tkagg = types.ModuleType("matplotlib.backends.backend_tkagg")
-backend_tkagg.FigureCanvasTkAgg = object
-sys.modules["matplotlib"] = matplotlib
-sys.modules["matplotlib.pyplot"] = pyplot
-sys.modules["matplotlib.backends"] = backends
-sys.modules["matplotlib.backends.backend_tkagg"] = backend_tkagg
 
 from purchase_tagger_app import PurchaseTaggerUI
 

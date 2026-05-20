@@ -248,6 +248,7 @@ class PurchaseTaggerUI(ctk.CTk):
 
         self._build_sidebar()
         self.show_view("Imports")
+
     def _build_sidebar(self):
         title = ctk.CTkLabel(
             self.sidebar,
@@ -327,6 +328,11 @@ class PurchaseTaggerUI(ctk.CTk):
 
     def _build_tags_view(self):
         self._build_placeholder_view("Tags")
+        ctk.CTkButton(
+            self.workspace,
+            text="Manage Tags",
+            command=self.open_tag_editor,
+        ).grid(row=1, column=0, sticky="w", padx=24, pady=(0, 24))
 
     def open_tag_editor(self):
         TagEditor(self, self.tags)
@@ -463,9 +469,9 @@ class PurchaseTaggerUI(ctk.CTk):
         opciones_mes = ['Todos'] + available_months(rows)
 
         # month filter
-        self.month_var = tk.StringVar(value='Todos')
+        summary_month_var = tk.StringVar(value='Todos')
         ttk.Label(win, text="Mes:").grid(row=0, column=2, padx=(20, 5), sticky='w')
-        ttk.Combobox(win, values=opciones_mes, textvariable=self.month_var, state='readonly', width=10) \
+        ttk.Combobox(win, values=opciones_mes, textvariable=summary_month_var, state='readonly', width=10) \
             .grid(row=0, column=3, padx=(0, 10), sticky='w')
 
         def draw():
@@ -480,7 +486,7 @@ class PurchaseTaggerUI(ctk.CTk):
                 return
 
             ows = getattr(self, 'filtered_rows', []) or getattr(self, 'all_rows', [])
-            sel_mes = self.month_var.get()
+            sel_mes = summary_month_var.get()
 
             data_rows = filter_rows_by_month(ows, sel_mes)
 
@@ -615,7 +621,7 @@ class PurchaseTaggerUI(ctk.CTk):
             if choice in ['Spend by Tag','Monthly Spend','Cumulative Spend','Límite vs Gasto por Tag']:
                 FigureCanvasTkAgg(fig, master=chart_frame).get_tk_widget().pack(fill='both', expand=True)
 
-        self.month_var.trace_add('write', lambda *a: draw())
+        summary_month_var.trace_add('write', lambda *a: draw())
         cb.bind('<<ComboboxSelected>>', lambda e: draw())
         draw()
 
