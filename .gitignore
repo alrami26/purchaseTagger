@@ -170,5 +170,8 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# Codex/Superpowers local brainstorming artifacts
+.superpowers/
+
 # PyPI configuration file
 .pypirc
