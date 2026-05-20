@@ -100,6 +100,9 @@ class FakeListbox:
     def selection_set(self, index):
         self.selection = [index]
 
+    def selection_clear(self, first, last=None):
+        self.selection = []
+
 
 class FakeFrame:
     def __init__(self, children=None):
@@ -517,7 +520,51 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.keyword_listbox.items, ["cafe", "lunch"])
         self.assertEqual(app.limit_var.get(), "75")
 
-    def test_save_current_tag_limit_rejects_invalid_integer(self):
+    def test_switching_tags_saves_previous_valid_decimal_limit(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {
+            "Dining": {"keywords": ["cafe"], "limit": 75},
+            "Travel": {"keywords": ["uber"], "limit": 125},
+        }
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining", "Travel"]
+        app.tag_listbox.selection_set(1)
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("42987.5")
+        app.current_tag_name = "Dining"
+
+        app.load_tag_details()
+
+        self.assertEqual(app.tags["Dining"]["limit"], 42987.5)
+        self.assertEqual(app.current_tag_name, "Travel")
+        self.assertEqual(app.keyword_listbox.items, ["uber"])
+        self.assertEqual(app.limit_var.get(), "125")
+
+    def test_switching_tags_with_invalid_limit_reselects_previous_tag(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {
+            "Dining": {"keywords": ["cafe"], "limit": 75},
+            "Travel": {"keywords": ["uber"], "limit": 125},
+        }
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining", "Travel"]
+        app.tag_listbox.selection_set(1)
+        app.keyword_listbox = FakeListbox()
+        app.keyword_listbox.items = ["cafe"]
+        app.limit_var = SimpleVar("not a number")
+        app.current_tag_name = "Dining"
+
+        with patch("purchase_tagger_app.messagebox.showwarning") as warning:
+            app.load_tag_details()
+
+        self.assertEqual(app.tags["Dining"]["limit"], 75)
+        self.assertEqual(app.current_tag_name, "Dining")
+        self.assertEqual(app.tag_listbox.curselection(), (0,))
+        self.assertEqual(app.keyword_listbox.items, ["cafe"])
+        self.assertEqual(app.limit_var.get(), "not a number")
+        warning.assert_called_once()
+
+    def test_save_current_tag_limit_rejects_invalid_number(self):
         app = object.__new__(PurchaseTaggerUI)
         app.tags = {"Dining": {"keywords": [], "limit": 75}}
         app.tag_listbox = FakeListbox()
@@ -531,6 +578,21 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertFalse(result)
         self.assertEqual(app.tags["Dining"]["limit"], 75)
         warning.assert_called_once()
+
+    def test_save_current_tag_limit_accepts_decimal_limit(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 75}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.limit_var = SimpleVar("42987.5")
+
+        with patch("purchase_tagger_app.messagebox.showwarning") as warning:
+            result = app.save_current_tag_limit()
+
+        self.assertTrue(result)
+        self.assertEqual(app.tags["Dining"]["limit"], 42987.5)
+        warning.assert_not_called()
 
     def test_tag_workspace_add_edit_remove_tag(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -565,6 +627,54 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.tags, {})
         self.assertEqual(app.tag_listbox.items, [])
         save_tags.assert_called_once_with(app.tags)
+
+    def test_remove_tag_resets_loaded_rows_and_reapplies_filter(self):
+        rows = [
+            ["01-ENE-25", "CAFE", "10.00", "USD", "Dining"],
+            ["02-ENE-25", "HOTEL", "20.00", "USD", "Travel"],
+        ]
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 0}, "Travel": {"keywords": [], "limit": 0}}
+        app.natag = "N/A"
+        app.all_rows = rows
+        app.filtered_rows = list(rows)
+        app.tree_item_rows = {"item-a": rows[0], "item-b": rows[1]}
+        app.tree = FakeTree(["item-a", "item-b"])
+        app.tree.items["item-a"] = rows[0]
+        app.tree.items["item-b"] = rows[1]
+        app.search_var = SimpleVar("")
+        app.currency_var = SimpleVar("All currencies")
+        app.month_var = SimpleVar("Todos")
+        app.tag_filter_var = SimpleVar("Dining")
+        app.total_var = SimpleVar("")
+        app.visible_count_var = SimpleVar("")
+        app.kpi_vars = {
+            "total_rows": SimpleVar("0"),
+            "visible_rows": SimpleVar("0"),
+            "untagged_rows": SimpleVar("0"),
+            "currency_count": SimpleVar("0"),
+            "over_limit_tags": SimpleVar("0"),
+        }
+        app.currency_menu = FakeMenu()
+        app.month_menu = FakeMenu()
+        app.tag_menu = FakeMenu()
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining", "Travel"]
+        app.tag_listbox.selection_set(0)
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("0")
+        app.status_var = SimpleVar("")
+
+        with patch("purchase_tagger_app.messagebox.askyesno", return_value=True), \
+                patch("purchase_tagger_app.save_tags"):
+            app.remove_tag()
+
+        self.assertEqual(rows[0][4], "N/A")
+        self.assertEqual(rows[1][4], "Travel")
+        self.assertEqual(app.tag_filter_var.get(), "Todos")
+        self.assertEqual(app.filtered_rows, rows)
+        self.assertEqual(app.kpi_vars["untagged_rows"].get(), "1")
+        self.assertEqual(app.status_var.get(), 'Removed tag "Dining"')
 
     def test_tag_workspace_add_edit_remove_keyword(self):
         app = object.__new__(PurchaseTaggerUI)

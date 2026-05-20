@@ -765,6 +765,7 @@ class PurchaseTaggerUI(ctk.CTk):
             self.keyword_listbox.delete(0, "end")
         if "limit_var" in self.__dict__:
             self.limit_var.set("")
+        self.current_tag_name = None
 
     def selected_tag_name(self):
         if "tag_listbox" not in self.__dict__:
@@ -777,22 +778,36 @@ class PurchaseTaggerUI(ctk.CTk):
     def load_tag_details(self, event=None):
         tag = self.selected_tag_name()
         if not tag or tag not in self.tags:
-            return
+            return False
+        previous_tag = self.__dict__.get("current_tag_name")
+        if previous_tag and previous_tag != tag and not self.save_current_tag_limit(previous_tag):
+            self._set_tag_selection(previous_tag)
+            return False
         if "keyword_listbox" in self.__dict__:
             self.keyword_listbox.delete(0, "end")
             for keyword in self.tags[tag].get("keywords", []):
                 self.keyword_listbox.insert("end", keyword)
         if "limit_var" in self.__dict__:
             self.limit_var.set(str(self.tags[tag].get("limit", 0)))
+        self.current_tag_name = tag
+        return True
 
-    def save_current_tag_limit(self):
-        tag = self.selected_tag_name()
-        if not tag:
+    def _parse_limit_value(self, value):
+        text = value.strip()
+        if not text:
+            raise ValueError
+        if any(marker in text.lower() for marker in (".", "e")):
+            return float(text)
+        return int(text)
+
+    def save_current_tag_limit(self, tag_name=None):
+        tag = tag_name or self.selected_tag_name()
+        if not tag or tag not in self.tags or "limit_var" not in self.__dict__:
             return True
         try:
-            limit = int(self.limit_var.get().strip())
+            limit = self._parse_limit_value(self.limit_var.get())
         except ValueError:
-            messagebox.showwarning("Invalid Limit", "Monthly limit must be an integer.")
+            messagebox.showwarning("Invalid Limit", "Monthly limit must be a number.")
             return False
         self.tags[tag]["limit"] = limit
         return True
@@ -805,11 +820,16 @@ class PurchaseTaggerUI(ctk.CTk):
         if all(name in self.__dict__ for name in ("all_rows", "tag_menu", "tag_filter_var")):
             self._refresh_filter_options()
 
-    def _select_tag_in_list(self, tag):
+    def _set_tag_selection(self, tag):
         if "tag_listbox" not in self.__dict__ or tag not in self.tags:
             return
         index = sorted(self.tags).index(tag)
+        if hasattr(self.tag_listbox, "selection_clear"):
+            self.tag_listbox.selection_clear(0, "end")
         self.tag_listbox.selection_set(index)
+
+    def _select_tag_in_list(self, tag):
+        self._set_tag_selection(tag)
         self.load_tag_details()
 
     def add_tag(self):
@@ -844,12 +864,20 @@ class PurchaseTaggerUI(ctk.CTk):
         tag = self.selected_tag_name()
         if not tag:
             return
+        if not self.save_current_tag_limit(tag):
+            return
         if not messagebox.askyesno("Confirm", f'Remove tag "{tag}"?'):
             return
         del self.tags[tag]
+        for row in self.__dict__.get("all_rows", []):
+            if row[4] == tag:
+                row[4] = self.natag
         save_tags(self.tags)
         self.refresh_tag_lists()
-        self._refresh_tag_filter_options()
+        if "all_rows" in self.__dict__:
+            self.apply_filter()
+        else:
+            self._refresh_tag_filter_options()
         self._set_status(f'Removed tag "{tag}"')
 
     def add_keyword(self):
