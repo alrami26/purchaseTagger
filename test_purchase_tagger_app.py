@@ -1,7 +1,9 @@
 import unittest
-from unittest.mock import patch
+from decimal import Decimal
+from unittest.mock import Mock, patch
 
 from purchase_tagger_app import PurchaseTaggerUI
+from views import tags as tags_view
 
 
 class FakeTree:
@@ -39,6 +41,17 @@ class FakeTree:
 
     def tag_configure(self, tag_name, **options):
         self.tags[tag_name] = options
+
+    def set(self, item_iid, column):
+        columns = {"date": 0, "description": 1, "amount": 2, "currency": 3, "tag": 4}
+        return self.items[item_iid][columns[column]]
+
+    def move(self, item_iid, parent, index):
+        self.visible_order.remove(item_iid)
+        self.visible_order.insert(index, item_iid)
+
+    def heading(self, col, command=None):
+        pass
 
     def winfo_exists(self):
         return 1
@@ -144,6 +157,20 @@ class FakeWidget:
         pass
 
 
+class FakeCtkFrame(FakeFrame):
+    instances = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.args = args
+        self.kwargs = kwargs
+        self.grid_options = None
+        FakeCtkFrame.instances.append(self)
+
+    def grid(self, **kwargs):
+        self.grid_options = kwargs
+
+
 class FakeCanvas:
     def __init__(self):
         self.widget = FakeWidget()
@@ -223,6 +250,239 @@ class FakeSummaryTree(FakeWidget):
     def insert(self, parent, index, values=None, tags=()):
         self.rows.append({"values": list(values or []), "tags": list(tags)})
         return f"summary-{len(self.rows)}"
+
+
+class FakePurchaseTree(FakeWidget):
+    instances = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.columns = list(kwargs["columns"])
+        self.displaycolumns = list(kwargs.get("displaycolumns", []))
+        self.show = kwargs.get("show")
+        self.headings = {}
+        self.column_options = {}
+        self.configure_options = {}
+        self.bound_events = {}
+        FakePurchaseTree.instances.append(self)
+
+    def heading(self, column, **kwargs):
+        self.headings[column] = kwargs
+
+    def column(self, column, **kwargs):
+        self.column_options[column] = kwargs
+
+    def configure(self, **kwargs):
+        self.configure_options.update(kwargs)
+
+    def yview(self, *args):
+        pass
+
+    def xview(self, *args):
+        pass
+
+    def bind(self, event, callback):
+        self.bound_events[event] = callback
+
+
+class PurchaseTaggerBrowseTest(unittest.TestCase):
+    def make_app(self, files=None):
+        app = object.__new__(PurchaseTaggerUI)
+        app.pdf_files = list(files or [])
+        app.file_label_var = SimpleVar("No PDFs selected")
+        app.status_var = SimpleVar("")
+        app.load = Mock()
+        return app
+
+    def test_browse_pdf_loads_and_tags_selected_pdfs(self):
+        app = self.make_app()
+
+        with patch(
+            "purchase_tagger_app.filedialog.askopenfilenames",
+            return_value=(r"C:\tmp\a.pdf", r"C:\tmp\b.pdf"),
+        ):
+            app.browse_pdf()
+
+        self.assertEqual(app.pdf_files, [r"C:\tmp\a.pdf", r"C:\tmp\b.pdf"])
+        self.assertEqual(app.file_label_var.get(), "2 PDFs selected")
+        app.load.assert_called_once_with()
+
+    def test_browse_pdf_cancel_keeps_current_selection_without_loading(self):
+        app = self.make_app([r"C:\tmp\statement.pdf"])
+        app.file_label_var.set("statement.pdf")
+
+        with patch("purchase_tagger_app.filedialog.askopenfilenames", return_value=()):
+            app.browse_pdf()
+
+        self.assertEqual(app.pdf_files, [r"C:\tmp\statement.pdf"])
+        self.assertEqual(app.file_label_var.get(), "statement.pdf")
+        app.load.assert_not_called()
+
+    def test_file_panel_uses_browse_and_tag_button_label(self):
+        app = self.make_app()
+        app.browse_pdf = Mock()
+        app.clear_pdfs = Mock()
+        app._panel = lambda parent, **kwargs: FakeFrame()
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget) as button:
+            app._build_file_panel(FakeFrame(), row=0)
+
+        button_texts = [call.kwargs["text"] for call in button.call_args_list]
+        self.assertIn("Browse & Tag", button_texts)
+        self.assertNotIn("Browse", button_texts)
+
+    def test_imports_view_has_no_manual_load_and_tag_header_button(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.workspace = FakeFrame()
+        app._build_page_header = Mock()
+        app._build_file_panel = Mock()
+        app._build_kpi_row = Mock()
+        app._build_filter_toolbar = Mock()
+        app._build_purchase_table = Mock()
+        app._build_totals_footer = Mock()
+        app._build_import_overview = Mock()
+        app.apply_filter = Mock()
+
+        with patch("purchase_tagger_app.ctk.CTkFrame", side_effect=FakeCtkFrame):
+            app._build_imports_view()
+
+        header_kwargs = app._build_page_header.call_args.kwargs
+        self.assertNotIn("action_text", header_kwargs)
+        self.assertNotIn("action_command", header_kwargs)
+        app._build_import_overview.assert_called_once()
+        app._build_filter_toolbar.assert_not_called()
+        app._build_purchase_table.assert_not_called()
+        app._build_totals_footer.assert_not_called()
+
+    def test_import_overview_data_summarizes_single_currency_import(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.pdf_files = ["jan.pdf", "feb.pdf"]
+        app.all_rows = [
+            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "90.00", "USD", "Groceries"],
+            ["03-FEB-25", "UNKNOWN", "10.00", "USD", "N/A"],
+        ]
+        app.tags = {
+            "Dining": {"limit": Decimal("50.00")},
+            "Groceries": {"limit": Decimal("200.00")},
+        }
+        app.natag = "N/A"
+
+        data = app._import_overview_data()
+
+        self.assertEqual(data["file_count"], 2)
+        self.assertEqual(data["purchase_count"], 3)
+        self.assertEqual(data["currencies"], "USD")
+        self.assertEqual(data["untagged_count"], 1)
+        self.assertEqual(data["over_limit_count"], 1)
+        self.assertEqual(data["month_range"], "2025-01 to 2025-02")
+        self.assertEqual(data["top_tag"], "Groceries 90.00")
+        self.assertEqual(data["largest_purchase"], "MARKET USD 90.00")
+        self.assertEqual(data["headline"], "Dining is over its limit by USD 30.00.")
+
+    def test_import_overview_data_keeps_general_counts_for_multiple_currencies(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.pdf_files = ["mixed.pdf"]
+        app.all_rows = [
+            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "90.00", "CRC", "Groceries"],
+        ]
+        app.tags = {}
+        app.natag = "N/A"
+        app.import_currency_var = SimpleVar("USD")
+
+        data = app._import_overview_data()
+
+        self.assertEqual(data["file_count"], 1)
+        self.assertEqual(data["purchase_count"], 2)
+        self.assertEqual(data["currencies"], "CRC, USD")
+        self.assertEqual(data["currency_options"], ["CRC", "USD"])
+        self.assertEqual(data["selected_currency"], "USD")
+        self.assertEqual(data["untagged_count"], 0)
+        self.assertEqual(data["top_tag"], "Dining 80.00")
+        self.assertEqual(data["largest_purchase"], "CAFE USD 80.00")
+        self.assertEqual(data["headline"], "Dining is driving this period's spend.")
+
+    def test_import_overview_data_falls_back_to_first_available_currency(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.pdf_files = ["mixed.pdf"]
+        app.all_rows = [
+            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "90.00", "CRC", "Groceries"],
+        ]
+        app.tags = {}
+        app.natag = "N/A"
+        app.import_currency_var = SimpleVar("EUR")
+
+        data = app._import_overview_data()
+
+        self.assertEqual(data["currency_options"], ["CRC", "USD"])
+        self.assertEqual(data["selected_currency"], "CRC")
+        self.assertEqual(app.import_currency_var.get(), "CRC")
+        self.assertEqual(data["top_tag"], "Groceries 90.00")
+
+    def test_import_overview_renders_general_information_labels(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app._panel = lambda parent, **kwargs: FakeFrame()
+        app._import_overview_data = Mock(return_value={
+            "file_count": 2,
+            "purchase_count": 3,
+            "currencies": "USD",
+            "untagged_count": 1,
+            "over_limit_count": 1,
+            "month_range": "2025-01 to 2025-02",
+            "top_tag": "Groceries 90.00",
+            "largest_purchase": "MARKET USD 90.00",
+            "headline": "Dining is over its limit by USD 30.00.",
+            "detail": "- Groceries accounts for 50.0% of spend.",
+            "currency_options": ["CRC", "USD"],
+            "selected_currency": "USD",
+        })
+        app.import_currency_var = SimpleVar("USD")
+        app.show_view = Mock()
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkFrame", side_effect=FakeCtkFrame), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget) as label, \
+                patch("purchase_tagger_app.ctk.CTkOptionMenu", side_effect=FakeWidget) as option_menu:
+            app._build_import_overview(FakeFrame(), row=2)
+
+        label_texts = [call.kwargs.get("text") for call in label.call_args_list]
+        for expected in (
+            "Import Overview",
+            "Files",
+            "Purchases Loaded",
+            "Currencies",
+            "Month Coverage",
+            "Untagged",
+            "Over Limit",
+            "Top Tag",
+            "Largest Purchase",
+            "Insights",
+        ):
+            self.assertIn(expected, label_texts)
+        option_menu.assert_called_once()
+        self.assertEqual(option_menu.call_args.kwargs["values"], ["CRC", "USD"])
+        self.assertIs(option_menu.call_args.kwargs["variable"], app.import_currency_var)
+
+    def test_load_refreshes_imports_overview_after_processing_pdfs(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.pdf_files = ["statement.pdf"]
+        app.all_rows = []
+        app.status_var = SimpleVar("")
+        app.apply_filter = Mock()
+        app.update_idletasks = Mock()
+        app.active_view = "Imports"
+        app.show_view = Mock()
+
+        with patch("purchase_tagger_app.process_purchases", return_value=[
+            ("01-ENE-25", "CAFE", Decimal("80.00"), "USD", "Dining", Decimal("0")),
+        ]):
+            app.load()
+
+        app.show_view.assert_called_once_with("Imports")
 
 
 class PurchaseTaggerRowMappingTest(unittest.TestCase):
@@ -360,11 +620,34 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(list(app.tree_item_rows.values()), [rows[1]])
         self.assertEqual(app.total_var.get(), "Totals: CRC 20.00")
         self.assertEqual(app.visible_count_var.get(), "Showing 1 purchases")
+        self.assertEqual(app.tree.items["item-1"], ["02-FEB-25", "BANANA MARKET", "20.00", "CRC", "Groceries"])
+        self.assertEqual(app.tree.items["item-1"][4], "Groceries")
         self.assertEqual(app.kpi_vars["total_rows"].get(), "2")
         self.assertEqual(app.kpi_vars["visible_rows"].get(), "1")
         self.assertEqual(app.currency_menu.values, ["All currencies", "CRC", "USD"])
         self.assertEqual(app.month_menu.values, ["Todos", "2025-01", "2025-02"])
         self.assertEqual(app.tag_menu.values, ["Todos", "Groceries", "Shopping"])
+
+    def test_purchase_table_declares_visible_tag_column_order(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app._panel = lambda parent, **kwargs: FakeFrame()
+        app._style_treeview = lambda: None
+        app.on_right_click = lambda event: None
+        FakePurchaseTree.instances = []
+
+        with patch("purchase_tagger_app.ttk.Treeview", side_effect=FakePurchaseTree), \
+                patch("purchase_tagger_app.ttk.Scrollbar", side_effect=FakeWidget):
+            app._build_purchase_table(FakeFrame(), row=0)
+
+        tree = FakePurchaseTree.instances[0]
+        expected_columns = ["date", "description", "amount", "currency", "tag"]
+        self.assertEqual(tree.columns, expected_columns)
+        self.assertEqual(tree.displaycolumns, expected_columns)
+        self.assertEqual(tree.show, "headings")
+        self.assertEqual(tree.headings["tag"]["text"], "Tag")
+        self.assertGreaterEqual(tree.column_options["tag"]["width"], 100)
+        self.assertEqual(tree.column_options["tag"]["anchor"], "w")
+        self.assertIn("xscrollcommand", tree.configure_options)
 
     def test_apply_filter_resets_stale_filters_before_computing_rows(self):
         rows = [
@@ -489,6 +772,11 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         self.assertEqual(calls, ["Tags"])
 
+    def test_tag_workspace_methods_are_extracted_to_tags_view_module(self):
+        self.assertIs(PurchaseTaggerUI._build_tags_view, tags_view._build_tags_view)
+        self.assertIs(PurchaseTaggerUI.add_tag, tags_view.add_tag)
+        self.assertIs(PurchaseTaggerUI.save_tags_from_view, tags_view.save_tags_from_view)
+
     def test_refresh_tag_lists_sorts_tags_and_clears_details(self):
         app = object.__new__(PurchaseTaggerUI)
         app.tags = {
@@ -535,7 +823,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         app.load_tag_details()
 
-        self.assertEqual(app.tags["Dining"]["limit"], 42987.5)
+        self.assertEqual(app.tags["Dining"]["limit"], Decimal("42987.5"))
         self.assertEqual(app.current_tag_name, "Travel")
         self.assertEqual(app.keyword_listbox.items, ["uber"])
         self.assertEqual(app.limit_var.get(), "125")
@@ -591,7 +879,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             result = app.save_current_tag_limit()
 
         self.assertTrue(result)
-        self.assertEqual(app.tags["Dining"]["limit"], 42987.5)
+        self.assertEqual(app.tags["Dining"]["limit"], Decimal("42987.5"))
         warning.assert_not_called()
 
     def test_tag_workspace_add_edit_remove_tag(self):
@@ -643,7 +931,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
                 patch("purchase_tagger_app.save_tags"):
             app.add_tag()
 
-        self.assertEqual(app.tags["Dining"]["limit"], 91.5)
+        self.assertEqual(app.tags["Dining"]["limit"], Decimal("91.5"))
         self.assertEqual(app.tags["Travel"], {"keywords": [], "limit": 0})
 
     def test_edit_tag_carries_current_limit_edit_to_renamed_tag(self):
@@ -662,7 +950,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             app.edit_tag()
 
         self.assertNotIn("Dining", app.tags)
-        self.assertEqual(app.tags["Food"]["limit"], 91.5)
+        self.assertEqual(app.tags["Food"]["limit"], Decimal("91.5"))
 
     def test_invalid_current_limit_blocks_add_and_edit_tag_actions(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -799,14 +1087,14 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.summary_frame = FakeFrame()
         app.summary_currency_vars = {
             "USD": SimpleVar(True),
-            "CRC": SimpleVar(True),
+            "CRC": SimpleVar(False),
         }
         app.summary_month_var = SimpleVar("Todos")
         app.summary_choice_var = SimpleVar("Spend by Tag")
         app.tags = {}
         with patch("purchase_tagger_app.filter_rows_by_month", side_effect=lambda rows, month: list(rows)) as month_filter, \
                 patch("purchase_tagger_app.summary_aggregates", return_value={
-                    "tag_totals": {"Dining": 80, "Groceries": 90},
+                    "tag_totals": {"Dining": Decimal("80.00")},
                     "monthly_totals": {},
                     "cumulative_points": [],
                 }) as aggregates, \
@@ -816,6 +1104,137 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         self.assertEqual(month_filter.call_args.args[0], all_rows)
         self.assertEqual(aggregates.call_args.args[0], all_rows)
+
+    def test_draw_summary_updates_insights_with_selected_currency_and_month(self):
+        all_rows = [
+            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "90.00", "CRC", "Groceries"],
+        ]
+        app = object.__new__(PurchaseTaggerUI)
+        app.all_rows = all_rows
+        app.summary_frame = FakeFrame()
+        app.summary_currency_vars = {
+            "USD": SimpleVar(True),
+            "CRC": SimpleVar(False),
+        }
+        app.summary_month_var = SimpleVar("2025-01")
+        app.summary_choice_var = SimpleVar("Spend by Tag")
+        app.tags = {"Dining": {"limit": 100}}
+        calls = []
+        app._render_summary_insights = lambda rows, selected, month: calls.append((rows, selected, month))
+
+        with patch("purchase_tagger_app.filter_rows_by_month", side_effect=lambda rows, month: list(rows)), \
+                patch("purchase_tagger_app.summary_aggregates", return_value={
+                    "tag_totals": {"Dining": Decimal("80.00")},
+                    "monthly_totals": {},
+                    "cumulative_points": [],
+                }), \
+                patch("purchase_tagger_app.plt.subplots", return_value=(FakeFigure(), FakeAxes())), \
+                patch("purchase_tagger_app.FigureCanvasTkAgg", return_value=FakeCanvas()):
+            app.draw_summary()
+
+        self.assertEqual(calls, [(all_rows, {"USD"}, "2025-01")])
+
+    def test_render_summary_insights_sets_headline_and_detail(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"limit": Decimal("50.00")}}
+        app.natag = "N/A"
+        app.summary_insight_vars = {
+            "total_spend": SimpleVar(),
+            "purchase_count": SimpleVar(),
+            "top_tag": SimpleVar(),
+            "over_limit": SimpleVar(),
+            "largest_purchase": SimpleVar(),
+        }
+        app.summary_headline_var = SimpleVar()
+        app.summary_messages_var = SimpleVar()
+
+        with patch("purchase_tagger_app.summary_insights", return_value={
+            "total_spend": Decimal("80.00"),
+            "purchase_count": 1,
+            "top_tags": [("Dining", Decimal("80.00"))],
+            "over_limit_tags": [("Dining", Decimal("80.00"), Decimal("50.00"))],
+            "largest_purchases": [["01-ENE-25", "CAFE", "80.00", "USD", "Dining"]],
+            "headline": "Dining is over its limit by USD 30.00.",
+            "detail": "- Dining accounts for 100.0% of spend.\n- Total spend is USD 80.00 across 1 purchase.",
+            "messages": [],
+        }):
+            app._render_summary_insights([["01-ENE-25", "CAFE", "80.00", "USD", "Dining"]], {"USD"}, "Todos")
+
+        self.assertEqual(app.summary_headline_var.get(), "Dining is over its limit by USD 30.00.")
+        self.assertEqual(
+            app.summary_messages_var.get(),
+            "- Dining accounts for 100.0% of spend.\n- Total spend is USD 80.00 across 1 purchase.",
+        )
+
+    def test_summary_insights_panel_uses_highlighted_left_aligned_callout(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app._panel = lambda parent, **kwargs: FakeFrame()
+        FakeCtkFrame.instances = []
+
+        with patch("purchase_tagger_app.tk.StringVar", side_effect=SimpleVar), \
+                patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkFrame", side_effect=FakeCtkFrame), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget) as label:
+            app._build_summary_insights_panel(FakeFrame(), row=1)
+
+        callout = next(frame for frame in FakeCtkFrame.instances if frame.kwargs.get("fg_color") == "#fff7ed")
+        self.assertEqual(callout.kwargs["border_color"], "#fed7aa")
+        self.assertEqual(callout.grid_options["sticky"], "ew")
+        self.assertEqual(callout.grid_options["columnspan"], 5)
+
+        headline_label = next(
+            call.kwargs
+            for call in label.call_args_list
+            if call.kwargs.get("textvariable") is app.summary_headline_var
+        )
+        detail_label = next(
+            call.kwargs
+            for call in label.call_args_list
+            if call.kwargs.get("textvariable") is app.summary_messages_var
+        )
+        self.assertEqual(headline_label["anchor"], "w")
+        self.assertEqual(detail_label["anchor"], "w")
+        self.assertEqual(headline_label["justify"], "left")
+        self.assertEqual(detail_label["justify"], "left")
+
+    def test_draw_summary_shows_message_when_multiple_currencies_are_selected(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.all_rows = [
+            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "90.00", "CRC", "Groceries"],
+        ]
+        app.summary_frame = FakeFrame()
+        app.summary_currency_vars = {
+            "USD": SimpleVar(True),
+            "CRC": SimpleVar(True),
+        }
+        app.summary_month_var = SimpleVar("Todos")
+        app.summary_choice_var = SimpleVar("Spend by Tag")
+        calls = []
+        app._render_summary_insights = lambda rows, selected, month: calls.append((rows, selected, month))
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget) as label, \
+                patch("purchase_tagger_app.summary_aggregates") as aggregates:
+            app.draw_summary()
+
+        self.assertEqual(label.call_args.kwargs["text"], "Select one currency for summaries to avoid mixing currencies.")
+        self.assertEqual(calls, [(app.all_rows, {"CRC", "USD"}, "Todos")])
+        aggregates.assert_not_called()
+
+    def test_sort_column_uses_decimal_for_amounts(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tree = FakeTree(["row-a", "row-b", "row-c"])
+        app.tree.items = {
+            "row-a": ["01-ENE-25", "A", "10.00", "USD", "Misc"],
+            "row-b": ["02-ENE-25", "B", "2.00", "USD", "Misc"],
+            "row-c": ["03-ENE-25", "C", "1,000.00", "USD", "Misc"],
+        }
+
+        app.sort_column("amount", False)
+
+        self.assertEqual(app.tree.visible_order, ["row-b", "row-a", "row-c"])
 
     def test_clear_summary_frame_destroys_canvas_widget_and_clears_refs(self):
         app = object.__new__(PurchaseTaggerUI)

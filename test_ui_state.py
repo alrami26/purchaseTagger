@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal
 
 from ui_state import (
     available_currencies,
@@ -63,9 +64,30 @@ def test_kpi_stats_counts_rows_currencies_untagged_and_over_limit_tags():
     }
 
 
+def test_kpi_stats_uses_decimal_math_for_limit_comparisons():
+    rows = [
+        ["01-MAY-26", "SMALL CHARGE", "0.10", "USD", "Misc"],
+        ["02-MAY-26", "SMALL CHARGE", "0.20", "USD", "Misc"],
+    ]
+    tags = {"Misc": {"keywords": [], "limit": Decimal("0.30")}}
+
+    stats = kpi_stats(rows, rows, tags, natag="N/A")
+
+    assert stats["over_limit_tags"] == 0
+
+
 def test_format_totals_outputs_sorted_currency_totals():
     assert format_totals(ROWS) == "Totals: CRC 42,300.00; USD 28.65"
     assert format_totals([]) == "Totals: 0.00"
+
+
+def test_format_totals_uses_decimal_math_for_cents():
+    rows = [
+        ["01-MAY-26", "SMALL CHARGE", "0.10", "USD", "Misc"],
+        ["02-MAY-26", "SMALL CHARGE", "0.20", "USD", "Misc"],
+    ]
+
+    assert format_totals(rows) == "Totals: USD 0.30"
 
 
 def test_build_file_label_handles_empty_single_and_multiple_files():

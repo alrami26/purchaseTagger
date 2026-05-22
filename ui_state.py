@@ -2,6 +2,7 @@
 import os
 from collections import Counter
 
+from money import ZERO, format_amount, parse_amount
 from summary import currency_totals, filter_rows_by_month, filter_rows_by_text
 
 
@@ -34,14 +35,14 @@ def kpi_stats(all_rows, filtered_rows, tags, natag="N/A"):
             continue
         tag = row[4]
         try:
-            amount = float(row[2].replace(",", ""))
+            amount = parse_amount(row[2])
         except (ValueError, AttributeError):
             continue
         totals_by_tag[tag] += amount
 
     over_limit_tags = 0
     for tag, total in totals_by_tag.items():
-        limit = tags.get(tag, {}).get("limit", 0)
+        limit = parse_amount(tags.get(tag, {}).get("limit", ZERO))
         if limit and total > limit:
             over_limit_tags += 1
 
@@ -58,7 +59,7 @@ def format_totals(rows):
     totals = currency_totals(rows)
     if not totals:
         return "Totals: 0.00"
-    parts = [f"{currency} {amount:,.2f}" for currency, amount in sorted(totals.items())]
+    parts = [f"{currency} {format_amount(amount)}" for currency, amount in sorted(totals.items())]
     return f"Totals: {'; '.join(parts)}"
 
 

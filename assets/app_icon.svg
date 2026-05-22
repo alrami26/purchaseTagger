@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Purchase Tagger app icon">
+  <defs>
+    <linearGradient id="tile" x1="42" y1="18" x2="214" y2="238" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#142033"/>
+      <stop offset="1" stop-color="#243a58"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="62" y1="112" x2="196" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".04"/>
+    </linearGradient>
+    <linearGradient id="blueBar" x1="76" y1="132" x2="76" y2="207" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#66a3ff"/>
+      <stop offset="1" stop-color="#2f6fd3"/>
+    </linearGradient>
+    <linearGradient id="greenBar" x1="128" y1="103" x2="128" y2="207" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3fd293"/>
+      <stop offset="1" stop-color="#18a06e"/>
+    </linearGradient>
+    <linearGradient id="goldBar" x1="180" y1="72" x2="180" y2="207" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffd76d"/>
+      <stop offset="1" stop-color="#e4aa2c"/>
+    </linearGradient>
+    <linearGradient id="tag" x1="150" y1="39" x2="223" y2="107" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dce7f2"/>
+    </linearGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="13" flood-color="#09111f" flood-opacity=".34"/>
+    </filter>
+    <filter id="barShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="9" stdDeviation="6" flood-color="#000000" flood-opacity=".24"/>
+    </filter>
+  </defs>
+
+  <rect x="18" y="18" width="220" height="220" rx="48" fill="url(#tile)"/>
+  <path d="M43 21h126c38 0 66 28 66 66v8C186 78 107 46 43 21Z" fill="#ffffff" opacity=".08"/>
+  <rect x="52" y="92" width="152" height="116" rx="28" fill="url(#panel)" filter="url(#softShadow)"/>
+
+  <g filter="url(#barShadow)">
+    <rect x="68" y="139" width="33" height="69" rx="15" fill="url(#blueBar)"/>
+    <rect x="119" y="110" width="33" height="98" rx="15" fill="url(#greenBar)"/>
+    <rect x="170" y="79" width="33" height="129" rx="15" fill="url(#goldBar)"/>
+  </g>
+
+  <g transform="rotate(8 184 70)" filter="url(#softShadow)">
+    <path d="M150 43h72a12 12 0 0 1 12 12v45a12 12 0 0 1-12 12h-72a12 12 0 0 1-12-12V55a12 12 0 0 1 12-12Z" fill="url(#tag)"/>
+    <circle cx="156" cy="62" r="8" fill="#142033"/>
+    <path d="M177 64h36" stroke="#aebed0" stroke-width="8" stroke-linecap="round"/>
+    <path d="M170 86h45" stroke="#c4cfda" stroke-width="8" stroke-linecap="round"/>
+  </g>
+</svg>

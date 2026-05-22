@@ -24,6 +24,7 @@ Imports becomes a load-and-overview dashboard:
   - top spending tag, when one currency can be inferred
   - largest purchase, when one currency can be inferred
 - Show an insight callout using the existing summary insight logic when the imported rows contain exactly one currency.
+- When multiple currencies are loaded, show a currency selector in the Imports overview so currency-specific insight fields can still be populated.
 - Show a clear fallback message when no data has been loaded.
 - Preserve the existing Purchases view as the place for row search, filtering, tag correction, totals, and CSV export.
 
@@ -41,6 +42,8 @@ The overview section can use small focused helpers on `PurchaseTaggerUI`, such a
 
 Those helpers should read from `self.all_rows`, `self.pdf_files`, `self.tags`, and existing summary helpers. They should not introduce a new persisted data shape.
 
+The Imports overview should use its own selected-currency state, separate from the Purchases filter currency. This state should default to the only loaded currency when one exists, or the first detected currency alphabetically when multiple currencies exist.
+
 ## Data Flow
 
 Loading PDFs stays unchanged:
@@ -57,7 +60,7 @@ Purchases continues to use `self.filtered_rows` for table display and filter/exp
 
 When no PDFs are selected or no rows are loaded, Imports should show a calm empty overview message rather than a blank table.
 
-When imported rows contain multiple currencies, the overview should still show general counts and currency names. Currency-specific insight fields should use a neutral message, because the existing summary calculations intentionally require exactly one selected currency.
+When imported rows contain multiple currencies, the overview should still show general counts and currency names. The selected currency should drive top tag, largest purchase, over-limit count, headline, and detail. The overview should still show all detected currencies so the user understands the import contains mixed currency data.
 
 If malformed dates or amounts exist, the overview should tolerate them and show available information from valid rows.
 
@@ -69,7 +72,8 @@ Tests should verify:
 - `_build_imports_view()` builds the file panel, KPI row, and import overview.
 - Import overview data reports selected file count, total purchases, currencies, untagged count, and over-limit count.
 - Single-currency imports can display top-tag and largest-purchase insight data.
-- Multiple-currency imports avoid currency-specific insights while still showing general import information.
+- Multiple-currency imports populate currency-specific insights after a currency is selected.
+- Changing the Imports currency selector updates the overview without changing the Purchases filter currency.
 
 ## Scope
 

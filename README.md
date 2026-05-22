@@ -56,17 +56,17 @@ pip install -r requirements-dev.txt
    python purchase_tagger_app.py
    ```
 
-2. Click **Browse** and choose one or more PDF files containing purchase data.
-3. Click **Load & Tag** to parse all selected PDFs, tag each purchase, and display the table.
-4. Use **Search** to filter rows by any displayed text.
-5. Click **Summary** and choose:
+2. Click **Browse & Tag** and choose one or more PDF files containing purchase data. The app automatically parses the selected PDFs, tags each purchase, and displays the table.
+3. Use **Search** to filter rows by any displayed text.
+4. Click **Summary** and choose:
    - **Spend by Tag**: Pie chart of total spend per tag.
    - **Monthly Spend**: Bar chart of spend per month.
    - **Cumulative Spend**: Line chart of cumulative spend over time.
    - **Límite vs Gasto por Tag**: Bar chart comparing tag limits to actual spend.
    - **Gasto Promedio por Tag/Mes**: Table of average monthly spend by tag.
-6. Click **Export** to save the current filtered table to CSV.
-7. Use the **Tags** sidebar view to add, edit, or remove tags, keywords, and limits.
+   Summary charts and limit comparisons require one selected currency at a time to avoid mixing unrelated monetary totals.
+5. Click **Export** to save the current filtered table to CSV.
+6. Use the **Tags** sidebar view to add, edit, or remove tags, keywords, and limits.
 
 ---
 
@@ -93,11 +93,29 @@ Keywords are matched case-insensitively against purchase descriptions.
 
 ## Testing
 
-Run the test suite with:
+Install development and test dependencies, then run the test suite with `pytest`:
 
 ```bash
+pip install -r requirements-dev.txt
 pytest
 ```
+
+The test workflow is standardized on `pytest`; `unittest discover` does not cover every test file.
+
+---
+
+## Packaging
+
+`purchase_tagger_app.spec` is the tracked PyInstaller build recipe for the desktop app. It includes the app entry point, local helper modules, `tags.json`, and CustomTkinter runtime assets.
+
+Install development/build dependencies, then run:
+
+```bash
+pip install -r requirements-dev.txt
+python -m PyInstaller purchase_tagger_app.spec
+```
+
+PyInstaller outputs are generated under `build/` and `dist/`; those directories stay ignored by git.
 
 ---
 

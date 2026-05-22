@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
+import ctypes
 import csv
 import os
+import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import customtkinter as ctk
 from purchase_extractor import process_purchases
 from tag_store import load_tags, save_tags
+from money import ZERO, format_amount, parse_amount
 from summary import (
     available_months,
     average_spend_by_tag_month,
     currency_totals,
     filter_rows_by_month,
     filter_rows_by_text,
+    summary_insights,
     summary_aggregates,
 )
 from ui_state import (
@@ -27,6 +31,27 @@ from ui_state import (
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from datetime import datetime
+
+
+def resource_path(relative_path):
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.normpath(os.path.join(base_path, relative_path))
+
+
+APP_ICON_PATH = resource_path(os.path.join("assets", "app_icon.ico"))
+APP_ICON_PNG_PATH = resource_path(os.path.join("assets", "app_icon.png"))
+WINDOWS_APP_ID = "PurchaseTagger.PDFPurchaseTagger.App"
+
+
+def set_windows_app_user_model_id(app_id=WINDOWS_APP_ID):
+    if sys.platform != "win32":
+        return False
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except (AttributeError, OSError):
+        return False
+    return True
+
 
 def simple_input(parent, title, prompt, default=None):
     """
@@ -53,12 +78,34 @@ def simple_input(parent, title, prompt, default=None):
     return res['value']
 
 class PurchaseTaggerUI(ctk.CTk):
+    from views.tags import (
+        _build_tags_view,
+        _parse_limit_value,
+        _refresh_tag_filter_options,
+        _select_tag_in_list,
+        _set_status,
+        _set_tag_selection,
+        add_keyword,
+        add_tag,
+        edit_keyword,
+        edit_tag,
+        load_tag_details,
+        open_tag_editor,
+        refresh_tag_lists,
+        remove_keyword,
+        remove_tag,
+        save_current_tag_limit,
+        save_tags_from_view,
+        selected_tag_name,
+    )
+
     def __init__(self):
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
         super().__init__()
         self.title("PDF Purchase Tagger")
         self.geometry("900x600")
+        self._apply_app_icon()
 
         self.pdf_files = []
         self.tags = load_tags()
@@ -71,6 +118,7 @@ class PurchaseTaggerUI(ctk.CTk):
         self.active_view = "Imports"
         self.search_var = tk.StringVar()
         self.currency_var = tk.StringVar(value="All currencies")
+        self.import_currency_var = tk.StringVar(value="")
         self.month_var = tk.StringVar(value=ALL_MONTHS)
         self.tag_filter_var = tk.StringVar(value=ALL_TAGS)
         self.status_var = tk.StringVar(value="Ready")
@@ -98,6 +146,20 @@ class PurchaseTaggerUI(ctk.CTk):
 
         self._build_sidebar()
         self.show_view("Imports")
+
+    def _apply_app_icon(self):
+        if not os.path.exists(APP_ICON_PATH):
+            return
+        try:
+            self.iconbitmap(APP_ICON_PATH)
+        except tk.TclError:
+            pass
+        if os.path.exists(APP_ICON_PNG_PATH):
+            try:
+                self._app_icon_photo = tk.PhotoImage(file=APP_ICON_PNG_PATH)
+                self.iconphoto(True, self._app_icon_photo)
+            except tk.TclError:
+                pass
 
     def _build_sidebar(self):
         title = ctk.CTkLabel(
@@ -164,11 +226,16 @@ class PurchaseTaggerUI(ctk.CTk):
     def _clear_workspace_widget_refs(self):
         for name in (
             "tree",
+            "import_currency_menu",
             "currency_menu",
             "month_menu",
             "tag_menu",
             "visible_count_var",
             "summary_frame",
+            "summary_insights_frame",
+            "summary_insight_vars",
+            "summary_headline_var",
+            "summary_messages_var",
             "summary_choice_var",
             "summary_chart_menu",
             "summary_month_menu",
@@ -238,26 +305,190 @@ class PurchaseTaggerUI(ctk.CTk):
                 row=0, column=1, rowspan=2, sticky="e"
             )
 
+    def _format_import_month_range(self, rows):
+        months = available_months(rows)
+        if not months:
+            return "No dated rows"
+        if len(months) == 1:
+            return months[0]
+        return f"{months[0]} to {months[-1]}"
+
+    def _import_overview_data(self):
+        rows = list(self.__dict__.get("all_rows", []))
+        pdf_files = list(self.__dict__.get("pdf_files", []))
+        natag = self.__dict__.get("natag", "N/A")
+        currencies = sorted({row[3] for row in rows if len(row) > 3 and row[3]})
+        import_currency_var = self.__dict__.get("import_currency_var")
+        selected_currency = import_currency_var.get() if import_currency_var is not None else ""
+        if selected_currency not in currencies:
+            selected_currency = currencies[0] if currencies else ""
+            if import_currency_var is not None:
+                import_currency_var.set(selected_currency)
+        data = {
+            "file_count": len(pdf_files),
+            "purchase_count": len(rows),
+            "currencies": ", ".join(currencies) if currencies else "None",
+            "currency_options": currencies,
+            "selected_currency": selected_currency,
+            "untagged_count": sum(1 for row in rows if len(row) > 4 and row[4] == natag),
+            "over_limit_count": 0,
+            "month_range": self._format_import_month_range(rows),
+            "top_tag": "None",
+            "largest_purchase": "None",
+            "headline": "Load purchases to see insights.",
+            "detail": "Select PDFs to populate this overview.",
+        }
+
+        if not rows:
+            return data
+        if not selected_currency:
+            data.update({
+                "top_tag": "Select one currency",
+                "largest_purchase": "Select one currency",
+                "headline": "Select a currency for insights.",
+                "detail": "Currency-specific insights need one selected currency.",
+            })
+            return data
+
+        currency = selected_currency
+        limits = {
+            tag: info.get("limit", ZERO)
+            for tag, info in self.__dict__.get("tags", {}).items()
+        }
+        insight_data = summary_insights(rows, {currency}, limits, natag=natag)
+        top_tags = insight_data["top_tags"]
+        largest_purchases = insight_data["largest_purchases"]
+        data.update({
+            "over_limit_count": len(insight_data["over_limit_tags"]),
+            "top_tag": f"{top_tags[0][0]} {format_amount(top_tags[0][1])}" if top_tags else "None",
+            "headline": insight_data.get("headline", data["headline"]),
+            "detail": insight_data.get("detail") or "\n".join(insight_data["messages"]),
+        })
+        if largest_purchases:
+            largest = largest_purchases[0]
+            amount = largest[2]
+            try:
+                amount = format_amount(parse_amount(amount))
+            except (TypeError, ValueError):
+                pass
+            data["largest_purchase"] = f"{largest[1]} {currency} {amount}"
+        return data
+
+    def _build_import_overview(self, parent, row):
+        data = self._import_overview_data()
+        panel = self._panel(parent, row=row, column=0, sticky="nsew")
+        panel.grid_columnconfigure(0, weight=1)
+        panel.grid_columnconfigure(1, weight=0)
+        panel.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            panel,
+            text="Import Overview",
+            text_color="#171a20",
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 2))
+        if data["currency_options"]:
+            selector_frame = ctk.CTkFrame(panel, fg_color="transparent")
+            selector_frame.grid(row=0, column=1, sticky="e", padx=14, pady=(10, 0))
+            ctk.CTkLabel(
+                selector_frame,
+                text="Currency",
+                text_color="#6b7280",
+                font=ctk.CTkFont(size=11),
+            ).grid(row=0, column=0, sticky="e", padx=(0, 8))
+            self.import_currency_menu = ctk.CTkOptionMenu(
+                selector_frame,
+                variable=self.import_currency_var,
+                values=data["currency_options"],
+                command=lambda _currency: self.show_view("Imports"),
+                width=96,
+            )
+            self.import_currency_menu.grid(row=0, column=1, sticky="e")
+
+        metrics_frame = ctk.CTkFrame(panel, fg_color="transparent")
+        metrics_frame.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=8, pady=(4, 8))
+        for index in range(4):
+            metrics_frame.grid_columnconfigure(index, weight=1)
+
+        metrics = [
+            ("Files", data["file_count"]),
+            ("Purchases Loaded", data["purchase_count"]),
+            ("Currencies", data["currencies"]),
+            ("Month Coverage", data["month_range"]),
+            ("Untagged", data["untagged_count"]),
+            ("Over Limit", data["over_limit_count"]),
+            ("Top Tag", data["top_tag"]),
+            ("Largest Purchase", data["largest_purchase"]),
+        ]
+        for index, (label, value) in enumerate(metrics):
+            stat_row = index // 4
+            stat_column = index % 4
+            ctk.CTkLabel(
+                metrics_frame,
+                text=label,
+                text_color="#6b7280",
+                font=ctk.CTkFont(size=11),
+            ).grid(row=stat_row * 2, column=stat_column, sticky="w", padx=6, pady=(6, 0))
+            ctk.CTkLabel(
+                metrics_frame,
+                text=str(value),
+                text_color="#171a20",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                wraplength=170,
+                justify="left",
+            ).grid(row=(stat_row * 2) + 1, column=stat_column, sticky="nw", padx=6, pady=(2, 8))
+
+        ctk.CTkLabel(
+            panel,
+            text="Insights",
+            text_color="#6b7280",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=14, pady=(0, 0))
+
+        insight_callout = ctk.CTkFrame(
+            panel,
+            fg_color="#eef6ff",
+            border_width=1,
+            border_color="#bfdbfe",
+            corner_radius=6,
+        )
+        insight_callout.grid(row=3, column=0, columnspan=2, sticky="ew", padx=14, pady=(4, 14))
+        insight_callout.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            insight_callout,
+            text=data["headline"],
+            text_color="#1d4ed8",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            wraplength=820,
+            justify="left",
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 2))
+        ctk.CTkLabel(
+            insight_callout,
+            text=data["detail"],
+            text_color="#374151",
+            font=ctk.CTkFont(size=12),
+            wraplength=820,
+            justify="left",
+            anchor="w",
+        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
+
     def _build_imports_view(self):
         self.workspace.grid_rowconfigure(1, weight=1)
         self._build_page_header(
             self.workspace,
             "Imports",
             "Load PDFs, tag purchases, and review results.",
-            action_text="Load & Tag",
-            action_command=self.load,
         )
 
         content = ctk.CTkFrame(self.workspace, fg_color="transparent")
         content.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 14))
         content.grid_columnconfigure(0, weight=1)
-        content.grid_rowconfigure(3, weight=1)
+        content.grid_rowconfigure(2, weight=1)
 
         self._build_file_panel(content, row=0)
         self._build_kpi_row(content, row=1)
-        self._build_filter_toolbar(content, row=2)
-        self._build_purchase_table(content, row=3)
-        self._build_totals_footer(content, row=4)
+        self._build_import_overview(content, row=2)
         self.apply_filter()
 
     def _build_purchases_view(self):
@@ -291,7 +522,7 @@ class PurchaseTaggerUI(ctk.CTk):
             text_color="#171a20",
             font=ctk.CTkFont(size=13, weight="bold"),
         ).grid(row=1, column=0, sticky="w", padx=14, pady=(2, 12))
-        ctk.CTkButton(panel, text="Browse", command=self.browse_pdf, width=90).grid(
+        ctk.CTkButton(panel, text="Browse & Tag", command=self.browse_pdf, width=110).grid(
             row=0, column=1, rowspan=2, padx=(0, 8)
         )
         ctk.CTkButton(panel, text="Clear", command=self.clear_pdfs, width=80, fg_color="#64748b").grid(
@@ -363,20 +594,33 @@ class PurchaseTaggerUI(ctk.CTk):
         table_frame.grid_rowconfigure(0, weight=1)
 
         cols = ("date", "description", "amount", "currency", "tag")
-        self.tree = ttk.Treeview(table_frame, columns=cols, show="headings")
+        headings = {
+            "date": "Date",
+            "description": "Description",
+            "amount": "Amount",
+            "currency": "Currency",
+            "tag": "Tag",
+        }
+        self.tree = ttk.Treeview(table_frame, columns=cols, displaycolumns=cols, show="headings")
         for col in cols:
-            self.tree.heading(col, text=col.title(), command=lambda selected_col=col: self.sort_column(selected_col, False))
-        self.tree.column("date", width=110, anchor="w")
-        self.tree.column("description", width=360, anchor="w")
-        self.tree.column("amount", width=120, anchor="e")
-        self.tree.column("currency", width=90, anchor="center")
-        self.tree.column("tag", width=140, anchor="w")
+            self.tree.heading(
+                col,
+                text=headings[col],
+                command=lambda selected_col=col: self.sort_column(selected_col, False),
+            )
+        self.tree.column("date", width=95, minwidth=85, anchor="w", stretch=False)
+        self.tree.column("description", width=250, minwidth=220, anchor="w", stretch=True)
+        self.tree.column("amount", width=90, minwidth=80, anchor="e", stretch=False)
+        self.tree.column("currency", width=75, minwidth=70, anchor="center", stretch=False)
+        self.tree.column("tag", width=125, minwidth=100, anchor="w", stretch=False)
         self.tree.grid(row=0, column=0, sticky="nsew", padx=(1, 0), pady=1)
         self.tree.bind("<Button-3>", self.on_right_click)
 
-        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
-        self.tree.configure(yscrollcommand=scrollbar.set)
+        vertical_scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
+        vertical_scrollbar.grid(row=0, column=1, sticky="ns")
+        horizontal_scrollbar = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
+        horizontal_scrollbar.grid(row=1, column=0, sticky="ew")
+        self.tree.configure(yscrollcommand=vertical_scrollbar.set, xscrollcommand=horizontal_scrollbar.set)
         self._style_treeview()
 
     def _build_totals_footer(self, parent, row):
@@ -441,6 +685,126 @@ class PurchaseTaggerUI(ctk.CTk):
             if "kpi_vars" in self.__dict__ and key in self.kpi_vars:
                 self.kpi_vars[key].set(str(value))
 
+    def _build_summary_insights_panel(self, parent, row):
+        self.summary_insights_frame = self._panel(parent, row=row, column=0, sticky="ew", pady=(0, 12))
+        for index in range(5):
+            self.summary_insights_frame.grid_columnconfigure(index, weight=1)
+
+        self.summary_insight_vars = {
+            "total_spend": tk.StringVar(value="0.00"),
+            "purchase_count": tk.StringVar(value="0"),
+            "top_tag": tk.StringVar(value="None"),
+            "over_limit": tk.StringVar(value="0"),
+            "largest_purchase": tk.StringVar(value="None"),
+        }
+        metrics = [
+            ("Total Spend", "total_spend"),
+            ("Purchases", "purchase_count"),
+            ("Top Tag", "top_tag"),
+            ("Over Limit", "over_limit"),
+            ("Largest Purchase", "largest_purchase"),
+        ]
+        for index, (label, key) in enumerate(metrics):
+            ctk.CTkLabel(
+                self.summary_insights_frame,
+                text=label,
+                text_color="#6b7280",
+                font=ctk.CTkFont(size=11),
+            ).grid(row=0, column=index, sticky="w", padx=12, pady=(10, 0))
+            ctk.CTkLabel(
+                self.summary_insights_frame,
+                textvariable=self.summary_insight_vars[key],
+                text_color="#171a20",
+                font=ctk.CTkFont(size=14, weight="bold"),
+                wraplength=150,
+                justify="left",
+            ).grid(row=1, column=index, sticky="nw", padx=12, pady=(2, 8))
+
+        ctk.CTkLabel(
+            self.summary_insights_frame,
+            text="Insights",
+            text_color="#6b7280",
+            font=ctk.CTkFont(size=11),
+        ).grid(row=2, column=0, sticky="w", padx=12, pady=(0, 0))
+
+        insight_callout = ctk.CTkFrame(
+            self.summary_insights_frame,
+            fg_color="#fff7ed",
+            border_width=1,
+            border_color="#fed7aa",
+            corner_radius=6,
+        )
+        insight_callout.grid(row=3, column=0, columnspan=5, sticky="ew", padx=12, pady=(4, 12))
+        insight_callout.grid_columnconfigure(0, weight=1)
+
+        self.summary_headline_var = tk.StringVar(value="Load purchases to see insights.")
+        ctk.CTkLabel(
+            insight_callout,
+            textvariable=self.summary_headline_var,
+            text_color="#9a3412",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            wraplength=820,
+            justify="left",
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 2))
+        self.summary_messages_var = tk.StringVar(value="Load purchases to see insights.")
+        ctk.CTkLabel(
+            insight_callout,
+            textvariable=self.summary_messages_var,
+            text_color="#374151",
+            font=ctk.CTkFont(size=12),
+            wraplength=820,
+            justify="left",
+            anchor="w",
+        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
+
+    def _render_summary_insights(self, rows, selected_currencies, month_key):
+        if (
+            "summary_insight_vars" not in self.__dict__
+            or "summary_headline_var" not in self.__dict__
+            or "summary_messages_var" not in self.__dict__
+        ):
+            return
+
+        if len(selected_currencies) != 1:
+            self.summary_insight_vars["total_spend"].set("0.00")
+            self.summary_insight_vars["purchase_count"].set("0")
+            self.summary_insight_vars["top_tag"].set("None")
+            self.summary_insight_vars["over_limit"].set("0")
+            self.summary_insight_vars["largest_purchase"].set("None")
+            self.summary_headline_var.set("Select one currency for insights.")
+            self.summary_messages_var.set("Insights are shown only when one currency is selected.")
+            return
+
+        limits = {tag: info.get("limit", ZERO) for tag, info in self.tags.items()}
+        insight_data = summary_insights(
+            rows,
+            selected_currencies,
+            limits,
+            month_key=month_key,
+            natag=self.natag,
+        )
+        currency = next(iter(selected_currencies))
+        top_tags = insight_data["top_tags"]
+        over_limit_tags = insight_data["over_limit_tags"]
+        largest_purchases = insight_data["largest_purchases"]
+
+        self.summary_insight_vars["total_spend"].set(f"{currency} {format_amount(insight_data['total_spend'])}")
+        self.summary_insight_vars["purchase_count"].set(str(insight_data["purchase_count"]))
+        self.summary_insight_vars["top_tag"].set(
+            f"{top_tags[0][0]} {format_amount(top_tags[0][1])}" if top_tags else "None"
+        )
+        self.summary_insight_vars["over_limit"].set(str(len(over_limit_tags)))
+        if largest_purchases:
+            largest = largest_purchases[0]
+            self.summary_insight_vars["largest_purchase"].set(f"{largest[1]} {currency} {largest[2]}")
+        else:
+            self.summary_insight_vars["largest_purchase"].set("None")
+        self.summary_headline_var.set(insight_data.get("headline", "No major spending insight for this selection."))
+        self.summary_messages_var.set(
+            insight_data.get("detail") or "\n".join(insight_data["messages"]) or "No insights for this selection."
+        )
+
     def _build_summary_view(self):
         self.workspace.grid_rowconfigure(1, weight=1)
         self._build_page_header(
@@ -452,7 +816,7 @@ class PurchaseTaggerUI(ctk.CTk):
         content = ctk.CTkFrame(self.workspace, fg_color="transparent")
         content.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 14))
         content.grid_columnconfigure(0, weight=1)
-        content.grid_rowconfigure(1, weight=1)
+        content.grid_rowconfigure(2, weight=1)
 
         controls = self._panel(content, row=0, column=0, sticky="ew", pady=(0, 12))
         controls.grid_columnconfigure(3, weight=1)
@@ -461,7 +825,7 @@ class PurchaseTaggerUI(ctk.CTk):
             "Spend by Tag",
             "Monthly Spend",
             "Cumulative Spend",
-            "Limite vs Gasto por Tag",
+            "Límite vs Gasto por Tag",
             "Gasto Promedio por Tag/Mes",
         ]
         self.summary_choice_var = tk.StringVar(value=chart_options[0])
@@ -490,7 +854,7 @@ class PurchaseTaggerUI(ctk.CTk):
         currency_frame.grid(row=0, column=2, columnspan=2, sticky="w", padx=(0, 10), pady=8)
         self.summary_currency_vars = {}
         for index, currency in enumerate(available_currencies(rows)):
-            var = tk.BooleanVar(value=True)
+            var = tk.BooleanVar(value=index == 0)
             self.summary_currency_vars[currency] = var
             ctk.CTkCheckBox(
                 currency_frame,
@@ -500,7 +864,9 @@ class PurchaseTaggerUI(ctk.CTk):
                 width=80,
             ).grid(row=0, column=index, padx=(0, 8), pady=2, sticky="w")
 
-        self.summary_frame = self._panel(content, row=1, column=0, sticky="nsew")
+        self._build_summary_insights_panel(content, row=1)
+
+        self.summary_frame = self._panel(content, row=2, column=0, sticky="nsew")
         self.summary_frame.grid_rowconfigure(0, weight=1)
         self.summary_frame.grid_columnconfigure(0, weight=1)
         self.draw_summary()
@@ -532,8 +898,12 @@ class PurchaseTaggerUI(ctk.CTk):
             return
 
         selected = {cur for cur, var in self.summary_currency_vars.items() if var.get()}
+        self._render_summary_insights(rows, selected, self.summary_month_var.get())
         if not selected:
             self._show_summary_message("Select at least one currency.")
+            return
+        if len(selected) > 1:
+            self._show_summary_message("Select one currency for summaries to avoid mixing currencies.")
             return
 
         data_rows = filter_rows_by_month(rows, self.summary_month_var.get())
@@ -550,30 +920,30 @@ class PurchaseTaggerUI(ctk.CTk):
         fig, ax = plt.subplots(figsize=(6, 4))
         if choice == "Spend by Tag":
             if tag_totals:
-                ax.pie(tag_totals.values(), labels=tag_totals.keys(), autopct="%1.1f%%")
+                ax.pie([float(value) for value in tag_totals.values()], labels=tag_totals.keys(), autopct="%1.1f%%")
             ax.set_title("Spend by Tag")
         elif choice == "Monthly Spend":
             months = sorted(monthly.keys())
-            ax.bar(months, [monthly[month] for month in months])
+            ax.bar(months, [float(monthly[month]) for month in months])
             ax.set_title("Monthly Spend")
             ax.tick_params(axis="x", rotation=45)
         elif choice == "Cumulative Spend":
             xs = [date_label for date_label, _running in cumulative_points]
-            ys = [running for _date_label, running in cumulative_points]
+            ys = [float(running) for _date_label, running in cumulative_points]
             ax.plot(xs, ys, marker="o")
             ax.set_title("Cumulative Spend Over Time")
             ax.set_ylabel("Total")
             ax.tick_params(axis="x", rotation=45)
-        elif choice == "Limite vs Gasto por Tag":
+        elif choice == "Límite vs Gasto por Tag":
             labels = list(tag_totals.keys())
-            spend = [tag_totals[tag] for tag in labels]
-            limits = [self.tags.get(tag, {}).get("limit", 0) for tag in labels]
+            spend = [float(tag_totals[tag]) for tag in labels]
+            limits = [float(parse_amount(self.tags.get(tag, {}).get("limit", ZERO))) for tag in labels]
             x_values = list(range(len(labels)))
             ax.bar([x - 0.2 for x in x_values], spend, width=0.4, label="Gasto")
-            ax.bar([x + 0.2 for x in x_values], limits, width=0.4, label="Limite")
+            ax.bar([x + 0.2 for x in x_values], limits, width=0.4, label="Límite")
             ax.set_xticks(x_values)
             ax.set_xticklabels(labels, rotation=45, ha="right")
-            ax.set_title("Comparacion: Limite vs Gasto por Tag")
+            ax.set_title("Comparación: Límite vs Gasto por Tag")
             ax.legend()
         else:
             plt.close(fig)
@@ -587,7 +957,7 @@ class PurchaseTaggerUI(ctk.CTk):
         self.summary_canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
     def _draw_average_spend_table(self, data_rows, selected):
-        limits = {tag: info.get("limit", 0) for tag, info in self.tags.items()}
+        limits = {tag: parse_amount(info.get("limit", ZERO)) for tag, info in self.tags.items()}
         summary_data = average_spend_by_tag_month(data_rows, selected, limits)
         tag_totals = summary_data["tag_month_totals"]
         tag_global_totals = summary_data["tag_global_totals"]
@@ -599,7 +969,7 @@ class PurchaseTaggerUI(ctk.CTk):
         self.summary_frame.grid_rowconfigure(0, weight=1)
         self.summary_frame.grid_columnconfigure(0, weight=1)
 
-        columns = ["Tag", "Limite", "Promedio", "Tag Total"] + [
+        columns = ["Tag", "Límite", "Promedio", "Tag Total"] + [
             f"{month_key}_{currency}"
             for month_key in months
             for currency in currencies_by_month[month_key]
@@ -615,8 +985,8 @@ class PurchaseTaggerUI(ctk.CTk):
 
         summary_tree.heading("Tag", text="Tag", anchor="w")
         summary_tree.column("Tag", width=120, anchor="w", stretch=True)
-        summary_tree.heading("Limite", text="Limite", anchor="e")
-        summary_tree.column("Limite", width=80, anchor="e", stretch=True)
+        summary_tree.heading("Límite", text="Límite", anchor="e")
+        summary_tree.column("Límite", width=80, anchor="e", stretch=True)
         summary_tree.heading("Promedio", text="Promedio", anchor="e")
         summary_tree.column("Promedio", width=90, anchor="e", stretch=True)
         summary_tree.heading("Tag Total", text="Tag Total", anchor="e")
@@ -631,11 +1001,11 @@ class PurchaseTaggerUI(ctk.CTk):
         summary_tree.tag_configure("over_limit", foreground="red")
 
         for tag in sorted(tag_totals):
-            limit = limits.get(tag, 0)
-            average = average_by_tag.get(tag, 0)
-            tag_total = tag_global_totals.get(tag, 0)
+            limit = limits.get(tag, ZERO)
+            average = average_by_tag.get(tag, ZERO)
+            tag_total = tag_global_totals.get(tag, ZERO)
             detail_values = [
-                f"{tag_totals[tag].get(month_key, {}).get(currency):,.2f}"
+                format_amount(tag_totals[tag].get(month_key, {}).get(currency))
                 if tag_totals[tag].get(month_key, {}).get(currency)
                 else ""
                 for month_key in months
@@ -647,16 +1017,16 @@ class PurchaseTaggerUI(ctk.CTk):
                 "end",
                 values=[
                     tag,
-                    f"{limit:,.2f}",
-                    f"{average:,.2f}" if average else "",
-                    f"{tag_total:,.2f}" if tag_total else "",
+                    format_amount(limit),
+                    format_amount(average) if average else "",
+                    format_amount(tag_total) if tag_total else "",
                     *detail_values,
                 ],
                 tags=row_tags,
             )
 
         total_detail = [
-            f"{totals.get(month_key, {}).get(currency):,.2f}"
+            format_amount(totals.get(month_key, {}).get(currency))
             if totals.get(month_key, {}).get(currency)
             else ""
             for month_key in months
@@ -668,274 +1038,14 @@ class PurchaseTaggerUI(ctk.CTk):
             "end",
             values=[
                 "Total",
-                f"{summary_data['total_limit']:,.2f}",
-                f"{summary_data['total_average']:,.2f}",
-                f"{summary_data['total_spend']:,.2f}",
+                format_amount(summary_data["total_limit"]),
+                format_amount(summary_data["total_average"]),
+                format_amount(summary_data["total_spend"]),
                 *total_detail,
             ],
             tags=total_tags,
         )
         self.summary_frame.update_idletasks()
-
-    def _build_tags_view(self):
-        self.workspace.grid_rowconfigure(1, weight=1)
-        self._build_page_header(
-            self.workspace,
-            "Tags",
-            "Manage tag names, keyword matching, and monthly limits.",
-        )
-
-        content = ctk.CTkFrame(self.workspace, fg_color="transparent")
-        content.grid(row=1, column=0, sticky="nsew", padx=24, pady=(0, 14))
-        content.grid_columnconfigure(0, weight=1)
-        content.grid_columnconfigure(1, weight=2)
-        content.grid_rowconfigure(0, weight=1)
-
-        left_panel = self._panel(content, row=0, column=0, sticky="nsew", padx=(0, 12))
-        left_panel.grid_columnconfigure(0, weight=1)
-        left_panel.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(
-            left_panel,
-            text="Tag List",
-            text_color="#171a20",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 8))
-        self.tag_listbox = tk.Listbox(left_panel, exportselection=False, bg="white", bd=0, relief="flat")
-        self.tag_listbox.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 10))
-        self.tag_listbox.bind("<<ListboxSelect>>", self.load_tag_details)
-
-        tag_buttons = ctk.CTkFrame(left_panel, fg_color="transparent")
-        tag_buttons.grid(row=2, column=0, sticky="ew", padx=14, pady=(0, 14))
-        for index in range(3):
-            tag_buttons.grid_columnconfigure(index, weight=1)
-        ctk.CTkButton(tag_buttons, text="Add", command=self.add_tag).grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ctk.CTkButton(tag_buttons, text="Edit", command=self.edit_tag).grid(row=0, column=1, sticky="ew", padx=(0, 6))
-        ctk.CTkButton(tag_buttons, text="Remove", command=self.remove_tag, fg_color="#dc2626").grid(
-            row=0, column=2, sticky="ew"
-        )
-
-        right_panel = self._panel(content, row=0, column=1, sticky="nsew")
-        right_panel.grid_columnconfigure(0, weight=1)
-        right_panel.grid_rowconfigure(3, weight=1)
-        ctk.CTkLabel(
-            right_panel,
-            text="Selected Tag",
-            text_color="#171a20",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 8))
-        ctk.CTkLabel(right_panel, text="Monthly Limit", text_color="#6b7280", font=ctk.CTkFont(size=11)).grid(
-            row=1, column=0, sticky="w", padx=14
-        )
-        self.limit_var = tk.StringVar(value="")
-        ctk.CTkEntry(right_panel, textvariable=self.limit_var).grid(
-            row=2, column=0, sticky="ew", padx=14, pady=(2, 10)
-        )
-        self.keyword_listbox = tk.Listbox(right_panel, exportselection=False, bg="white", bd=0, relief="flat")
-        self.keyword_listbox.grid(row=3, column=0, sticky="nsew", padx=14, pady=(0, 10))
-
-        keyword_buttons = ctk.CTkFrame(right_panel, fg_color="transparent")
-        keyword_buttons.grid(row=4, column=0, sticky="ew", padx=14, pady=(0, 14))
-        for index in range(4):
-            keyword_buttons.grid_columnconfigure(index, weight=1)
-        ctk.CTkButton(keyword_buttons, text="Add Keyword", command=self.add_keyword).grid(
-            row=0, column=0, sticky="ew", padx=(0, 6)
-        )
-        ctk.CTkButton(keyword_buttons, text="Edit", command=self.edit_keyword).grid(
-            row=0, column=1, sticky="ew", padx=(0, 6)
-        )
-        ctk.CTkButton(keyword_buttons, text="Remove", command=self.remove_keyword, fg_color="#dc2626").grid(
-            row=0, column=2, sticky="ew", padx=(0, 6)
-        )
-        ctk.CTkButton(keyword_buttons, text="Save", command=self.save_tags_from_view, fg_color="#16a34a").grid(
-            row=0, column=3, sticky="ew"
-        )
-
-        self.refresh_tag_lists()
-
-    def open_tag_editor(self):
-        self.show_view("Tags")
-
-    def refresh_tag_lists(self):
-        if "tag_listbox" not in self.__dict__:
-            return
-        self.tag_listbox.delete(0, "end")
-        for tag in sorted(self.tags):
-            self.tag_listbox.insert("end", tag)
-        if "keyword_listbox" in self.__dict__:
-            self.keyword_listbox.delete(0, "end")
-        if "limit_var" in self.__dict__:
-            self.limit_var.set("")
-        self.current_tag_name = None
-
-    def selected_tag_name(self):
-        if "tag_listbox" not in self.__dict__:
-            return None
-        selection = self.tag_listbox.curselection()
-        if not selection:
-            return None
-        return self.tag_listbox.get(selection[0])
-
-    def load_tag_details(self, event=None):
-        tag = self.selected_tag_name()
-        if not tag or tag not in self.tags:
-            return False
-        previous_tag = self.__dict__.get("current_tag_name")
-        if previous_tag and previous_tag != tag and not self.save_current_tag_limit(previous_tag):
-            self._set_tag_selection(previous_tag)
-            return False
-        if "keyword_listbox" in self.__dict__:
-            self.keyword_listbox.delete(0, "end")
-            for keyword in self.tags[tag].get("keywords", []):
-                self.keyword_listbox.insert("end", keyword)
-        if "limit_var" in self.__dict__:
-            self.limit_var.set(str(self.tags[tag].get("limit", 0)))
-        self.current_tag_name = tag
-        return True
-
-    def _parse_limit_value(self, value):
-        text = value.strip()
-        if not text:
-            raise ValueError
-        if any(marker in text.lower() for marker in (".", "e")):
-            return float(text)
-        return int(text)
-
-    def save_current_tag_limit(self, tag_name=None):
-        tag = tag_name or self.selected_tag_name()
-        if not tag or tag not in self.tags or "limit_var" not in self.__dict__:
-            return True
-        try:
-            limit = self._parse_limit_value(self.limit_var.get())
-        except ValueError:
-            messagebox.showwarning("Invalid Limit", "Monthly limit must be a number.")
-            return False
-        self.tags[tag]["limit"] = limit
-        return True
-
-    def _set_status(self, message):
-        if "status_var" in self.__dict__:
-            self.status_var.set(message)
-
-    def _refresh_tag_filter_options(self):
-        if all(name in self.__dict__ for name in ("all_rows", "tag_menu", "tag_filter_var")):
-            self._refresh_filter_options()
-
-    def _set_tag_selection(self, tag):
-        if "tag_listbox" not in self.__dict__ or tag not in self.tags:
-            return
-        index = sorted(self.tags).index(tag)
-        if hasattr(self.tag_listbox, "selection_clear"):
-            self.tag_listbox.selection_clear(0, "end")
-        self.tag_listbox.selection_set(index)
-
-    def _select_tag_in_list(self, tag):
-        self._set_tag_selection(tag)
-        self.load_tag_details()
-
-    def add_tag(self):
-        if not self.save_current_tag_limit():
-            return
-        name = simple_input(self, "New Tag", "Tag name:")
-        if not name or name in self.tags:
-            return
-        self.tags[name] = {"keywords": [], "limit": 0}
-        save_tags(self.tags)
-        self.refresh_tag_lists()
-        self._select_tag_in_list(name)
-        self._refresh_tag_filter_options()
-        self._set_status(f'Added tag "{name}"')
-
-    def edit_tag(self):
-        old = self.selected_tag_name()
-        if not old:
-            return
-        if not self.save_current_tag_limit(old):
-            return
-        new = simple_input(self, "Edit Tag", f'New name for tag "{old}":', default=old)
-        if not new or new == old or new in self.tags:
-            return
-        self.tags[new] = self.tags.pop(old)
-        for row in self.__dict__.get("all_rows", []):
-            if row[4] == old:
-                row[4] = new
-        save_tags(self.tags)
-        self.refresh_tag_lists()
-        self._select_tag_in_list(new)
-        self._refresh_tag_filter_options()
-        self._set_status(f'Renamed tag "{old}" to "{new}"')
-
-    def remove_tag(self):
-        tag = self.selected_tag_name()
-        if not tag:
-            return
-        if not self.save_current_tag_limit(tag):
-            return
-        if not messagebox.askyesno("Confirm", f'Remove tag "{tag}"?'):
-            return
-        del self.tags[tag]
-        for row in self.__dict__.get("all_rows", []):
-            if row[4] == tag:
-                row[4] = self.natag
-        save_tags(self.tags)
-        self.refresh_tag_lists()
-        if "all_rows" in self.__dict__:
-            self.apply_filter()
-        else:
-            self._refresh_tag_filter_options()
-        self._set_status(f'Removed tag "{tag}"')
-
-    def add_keyword(self):
-        tag = self.selected_tag_name()
-        if not tag:
-            return
-        keyword = simple_input(self, "New Keyword", "Keyword:")
-        if not keyword:
-            return
-        self.tags[tag].setdefault("keywords", []).append(keyword)
-        save_tags(self.tags)
-        self.load_tag_details()
-        self._set_status(f'Added keyword to "{tag}"')
-
-    def edit_keyword(self):
-        tag = self.selected_tag_name()
-        if not tag or "keyword_listbox" not in self.__dict__:
-            return
-        selection = self.keyword_listbox.curselection()
-        if not selection:
-            return
-        index = selection[0]
-        old = self.keyword_listbox.get(index)
-        new = simple_input(self, "Edit Keyword", f'New value for keyword "{old}":', default=old)
-        if not new or new == old:
-            return
-        self.tags[tag]["keywords"][index] = new
-        save_tags(self.tags)
-        self.load_tag_details()
-        self.keyword_listbox.selection_set(index)
-        self._set_status(f'Updated keyword for "{tag}"')
-
-    def remove_keyword(self):
-        tag = self.selected_tag_name()
-        if not tag or "keyword_listbox" not in self.__dict__:
-            return
-        selection = self.keyword_listbox.curselection()
-        if not selection:
-            return
-        index = selection[0]
-        keyword = self.keyword_listbox.get(index)
-        if not messagebox.askyesno("Confirm", f'Remove keyword "{keyword}"?'):
-            return
-        del self.tags[tag]["keywords"][index]
-        save_tags(self.tags)
-        self.load_tag_details()
-        self._set_status(f'Removed keyword from "{tag}"')
-
-    def save_tags_from_view(self):
-        if not self.save_current_tag_limit():
-            return
-        save_tags(self.tags)
-        self._refresh_tag_filter_options()
-        self._set_status("Saved tags")
 
     def browse_pdf(self):
         files = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
@@ -943,6 +1053,7 @@ class PurchaseTaggerUI(ctk.CTk):
             self.pdf_files = list(files)
             self.file_label_var.set(build_file_label(self.pdf_files))
             self.status_var.set(f"{len(self.pdf_files)} PDF file(s) selected")
+            self.load()
 
     def clear_pdfs(self):
         self.pdf_files = []
@@ -960,11 +1071,13 @@ class PurchaseTaggerUI(ctk.CTk):
             try:
                 raw = process_purchases(pdf)
                 for d, desc, amt, cur, tag, _ in raw:
-                    self.all_rows.append([d, desc, f"{float(amt):,.2f}", cur, tag])
+                    self.all_rows.append([d, desc, format_amount(amt), cur, tag])
             except Exception as e:
                 messagebox.showerror('Error', f'{os.path.basename(pdf)}: {e}')
         self.apply_filter()
         self.status_var.set(f"Loaded and tagged {len(self.all_rows)} purchases")
+        if self.__dict__.get("active_view") == "Imports":
+            self.show_view("Imports")
 
     def apply_filter(self):
         self._refresh_filter_options()
@@ -1013,7 +1126,7 @@ class PurchaseTaggerUI(ctk.CTk):
         for t in self.tags:
             menu.add_command(label=t, command=lambda tag=t, iid=iid: self.assign_tag(iid, tag))
         menu.add_separator()
-        menu.add_command(label='New Tag…', command=lambda iid=iid: self.create_and_assign(iid))
+        menu.add_command(label='New Tag...', command=lambda iid=iid: self.create_and_assign(iid))
         menu.tk_popup(event.x_root, event.y_root)
 
     def _row_for_item(self, item_iid):
@@ -1055,7 +1168,7 @@ class PurchaseTaggerUI(ctk.CTk):
     def sort_column(self, col, reverse):
         data = [(self.tree.set(k, col), k) for k in self.tree.get_children('')]
         if col == 'amount':
-            data = [(float(v.replace(',', '')), k) for v, k in data]
+            data = [(parse_amount(v), k) for v, k in data]
         else:
             data = [(v.lower(), k) for v, k in data]
         data.sort(reverse=reverse)
@@ -1079,5 +1192,10 @@ class PurchaseTaggerUI(ctk.CTk):
         except Exception as e:
             messagebox.showerror('Error', str(e))
 
-if __name__ == '__main__':
+def main():
+    set_windows_app_user_model_id()
     PurchaseTaggerUI().mainloop()
+
+
+if __name__ == '__main__':
+    main()
