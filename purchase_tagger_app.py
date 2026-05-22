@@ -889,6 +889,28 @@ class PurchaseTaggerUI(ctk.CTk):
             font=ctk.CTkFont(size=14),
         ).grid(row=0, column=0, sticky="nsew", padx=20, pady=20)
 
+    def _style_summary_axes(self, ax, title, ylabel=None):
+        ax.set_facecolor("#ffffff")
+        ax.set_title(title, loc="left", pad=14, fontsize=13, fontweight="bold", color="#111827")
+        if ylabel:
+            ax.set_ylabel(ylabel, color="#4b5563")
+        ax.grid(axis="y", color="#e5e7eb", linewidth=0.8)
+        ax.tick_params(axis="both", colors="#4b5563", labelsize=9)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["left"].set_visible(False)
+        ax.spines["bottom"].set_color("#d1d5db")
+        ax.yaxis.set_visible(True)
+
+    def _summary_status_color(self, spend, limit):
+        if limit and spend > limit:
+            return "#dc2626"
+        return "#2563eb"
+
+    def _finalize_summary_figure(self, fig):
+        fig.patch.set_facecolor("#ffffff")
+        fig.tight_layout(pad=2.0)
+
     def draw_summary(self):
         self._clear_summary_frame()
 
@@ -917,40 +939,52 @@ class PurchaseTaggerUI(ctk.CTk):
         monthly = aggregates["monthly_totals"]
         cumulative_points = aggregates["cumulative_points"]
 
-        fig, ax = plt.subplots(figsize=(6, 4))
+        fig, ax = plt.subplots(figsize=(7, 4.5))
         if choice == "Spend by Tag":
             if tag_totals:
-                ax.pie([float(value) for value in tag_totals.values()], labels=tag_totals.keys(), autopct="%1.1f%%")
-            ax.set_title("Spend by Tag")
+                colors = ["#2563eb", "#16a34a", "#f59e0b", "#7c3aed", "#0891b2", "#db2777", "#64748b"]
+                ax.pie(
+                    [float(value) for value in tag_totals.values()],
+                    labels=tag_totals.keys(),
+                    autopct="%1.1f%%",
+                    startangle=90,
+                    colors=colors[:len(tag_totals)],
+                    wedgeprops={"linewidth": 1, "edgecolor": "#ffffff"},
+                    textprops={"color": "#374151", "fontsize": 9},
+                )
+            self._style_summary_axes(ax, "Spend by Tag")
         elif choice == "Monthly Spend":
             months = sorted(monthly.keys())
-            ax.bar(months, [float(monthly[month]) for month in months])
-            ax.set_title("Monthly Spend")
+            ax.bar(months, [float(monthly[month]) for month in months], color="#2563eb", width=0.6)
+            self._style_summary_axes(ax, "Monthly Spend", ylabel="Total")
             ax.tick_params(axis="x", rotation=45)
         elif choice == "Cumulative Spend":
             xs = [date_label for date_label, _running in cumulative_points]
             ys = [float(running) for _date_label, running in cumulative_points]
-            ax.plot(xs, ys, marker="o")
-            ax.set_title("Cumulative Spend Over Time")
-            ax.set_ylabel("Total")
+            ax.plot(xs, ys, marker="o", color="#2563eb", linewidth=2.2, markerfacecolor="#ffffff")
+            self._style_summary_axes(ax, "Cumulative Spend Over Time", ylabel="Total")
             ax.tick_params(axis="x", rotation=45)
         elif choice == "Límite vs Gasto por Tag":
             labels = list(tag_totals.keys())
             spend = [float(tag_totals[tag]) for tag in labels]
             limits = [float(parse_amount(self.tags.get(tag, {}).get("limit", ZERO))) for tag in labels]
             x_values = list(range(len(labels)))
-            ax.bar([x - 0.2 for x in x_values], spend, width=0.4, label="Gasto")
-            ax.bar([x + 0.2 for x in x_values], limits, width=0.4, label="Límite")
+            spend_colors = [
+                self._summary_status_color(spend_value, limit_value)
+                for spend_value, limit_value in zip(spend, limits)
+            ]
+            ax.bar([x - 0.2 for x in x_values], spend, width=0.4, label="Gasto", color=spend_colors)
+            ax.bar([x + 0.2 for x in x_values], limits, width=0.4, label="Límite", color="#9ca3af")
             ax.set_xticks(x_values)
             ax.set_xticklabels(labels, rotation=45, ha="right")
-            ax.set_title("Comparación: Límite vs Gasto por Tag")
-            ax.legend()
+            self._style_summary_axes(ax, "Comparación: Límite vs Gasto por Tag", ylabel="Total")
+            ax.legend(frameon=False)
         else:
             plt.close(fig)
             self._show_summary_message("Choose a summary chart.")
             return
 
-        fig.tight_layout()
+        self._finalize_summary_figure(fig)
         self.summary_figure = fig
         self.summary_canvas = FigureCanvasTkAgg(fig, master=self.summary_frame)
         self.summary_canvas.draw()

@@ -182,24 +182,63 @@ class FakeCanvas:
         pass
 
 
+class FakeAxis:
+    def __init__(self):
+        self.visible = True
+
+    def set_visible(self, visible):
+        self.visible = visible
+
+
+class FakeSpine:
+    def __init__(self):
+        self.visible = True
+        self.color = None
+
+    def set_visible(self, visible):
+        self.visible = visible
+
+    def set_color(self, color):
+        self.color = color
+
+    def set_facecolor(self, color):
+        self.color = color
+
+
 class FakeAxes:
+    def __init__(self):
+        self.title = None
+        self.title_kwargs = {}
+        self.ylabel = None
+        self.ylabel_kwargs = {}
+        self.facecolor = None
+        self.grid_calls = []
+        self.tick_params_calls = []
+        self.bar_calls = []
+        self.pie_calls = []
+        self.plot_calls = []
+        self.spines = {name: FakeSpine() for name in ("top", "right", "left", "bottom")}
+        self.yaxis = FakeAxis()
+
     def pie(self, *args, **kwargs):
-        pass
+        self.pie_calls.append((args, kwargs))
 
     def bar(self, *args, **kwargs):
-        pass
+        self.bar_calls.append((args, kwargs))
 
     def plot(self, *args, **kwargs):
-        pass
+        self.plot_calls.append((args, kwargs))
 
     def set_title(self, *args, **kwargs):
-        pass
+        self.title = args[0] if args else None
+        self.title_kwargs = kwargs
 
     def set_ylabel(self, *args, **kwargs):
-        pass
+        self.ylabel = args[0] if args else None
+        self.ylabel_kwargs = kwargs
 
     def tick_params(self, *args, **kwargs):
-        pass
+        self.tick_params_calls.append((args, kwargs))
 
     def set_xticks(self, *args, **kwargs):
         pass
@@ -210,10 +249,20 @@ class FakeAxes:
     def legend(self, *args, **kwargs):
         pass
 
+    def set_facecolor(self, color):
+        self.facecolor = color
+
+    def grid(self, *args, **kwargs):
+        self.grid_calls.append((args, kwargs))
+
 
 class FakeFigure:
-    def tight_layout(self):
-        pass
+    def __init__(self):
+        self.patch = FakeSpine()
+        self.tight_layout_kwargs = None
+
+    def tight_layout(self, *args, **kwargs):
+        self.tight_layout_kwargs = kwargs
 
 
 class FakeSummaryTree(FakeWidget):
@@ -1135,6 +1184,29 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         self.assertEqual(calls, [(all_rows, {"USD"}, "2025-01")])
 
+    def test_style_summary_axes_applies_analytical_presentation(self):
+        app = object.__new__(PurchaseTaggerUI)
+        ax = FakeAxes()
+
+        app._style_summary_axes(ax, "Monthly Spend", ylabel="Total")
+
+        self.assertEqual(ax.title, "Monthly Spend")
+        self.assertEqual(ax.title_kwargs["loc"], "left")
+        self.assertEqual(ax.ylabel, "Total")
+        self.assertEqual(ax.ylabel_kwargs["color"], "#4b5563")
+        self.assertEqual(ax.facecolor, "#ffffff")
+        self.assertTrue(ax.grid_calls)
+        self.assertEqual(ax.grid_calls[0][1]["axis"], "y")
+        self.assertFalse(ax.spines["top"].visible)
+        self.assertFalse(ax.spines["right"].visible)
+
+    def test_summary_status_color_marks_over_limit_spend(self):
+        app = object.__new__(PurchaseTaggerUI)
+
+        self.assertEqual(app._summary_status_color(80.0, 50.0), "#dc2626")
+        self.assertEqual(app._summary_status_color(40.0, 50.0), "#2563eb")
+        self.assertEqual(app._summary_status_color(40.0, 0.0), "#2563eb")
+
     def test_render_summary_insights_sets_headline_and_detail(self):
         app = object.__new__(PurchaseTaggerUI)
         app.tags = {"Dining": {"limit": Decimal("50.00")}}
@@ -1222,6 +1294,28 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(label.call_args.kwargs["text"], "Select one currency for summaries to avoid mixing currencies.")
         self.assertEqual(calls, [(app.all_rows, {"CRC", "USD"}, "Todos")])
         aggregates.assert_not_called()
+
+    def test_draw_summary_limit_chart_uses_alert_color_for_over_limit_tags(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.all_rows = [["01-ENE-25", "CAFE", "80.00", "USD", "Dining"]]
+        app.summary_frame = FakeFrame()
+        app.summary_currency_vars = {"USD": SimpleVar(True)}
+        app.summary_month_var = SimpleVar("Todos")
+        app.summary_choice_var = SimpleVar("Límite vs Gasto por Tag")
+        app.tags = {"Dining": {"limit": 50}}
+        ax = FakeAxes()
+
+        with patch("purchase_tagger_app.filter_rows_by_month", side_effect=lambda rows, month: list(rows)), \
+                patch("purchase_tagger_app.summary_aggregates", return_value={
+                    "tag_totals": {"Dining": Decimal("80.00")},
+                    "monthly_totals": {},
+                    "cumulative_points": [],
+                }), \
+                patch("purchase_tagger_app.plt.subplots", return_value=(FakeFigure(), ax)), \
+                patch("purchase_tagger_app.FigureCanvasTkAgg", return_value=FakeCanvas()):
+            app.draw_summary()
+
+        self.assertEqual(ax.bar_calls[0][1]["color"], ["#dc2626"])
 
     def test_sort_column_uses_decimal_for_amounts(self):
         app = object.__new__(PurchaseTaggerUI)
