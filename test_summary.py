@@ -23,6 +23,15 @@ class SummaryTest(unittest.TestCase):
             ["04-MAR-25", "OUT OF SCOPE", "9.00", "EUR", "Other"],
         ]
 
+    def purchase_rows(self):
+        return [
+            ["01-ENE-25", "CITY MARKET", "-1,000.00", "CRC", "Food"],
+            ["15-ENE-25", "CAFE", "-500.00", "CRC", "Food"],
+            ["02-FEB-25", "UBER", "-20.00", "USD", "Travel"],
+            ["03-FEB-25", "MARKET", "-300.00", "CRC", "Food"],
+            ["04-MAR-25", "OUT OF SCOPE", "-9.00", "EUR", "Other"],
+        ]
+
     def test_filter_rows_by_text_matches_any_displayed_cell(self):
         self.assertEqual(filter_rows_by_text(self.rows, "uber"), [self.rows[2]])
         self.assertEqual(filter_rows_by_text(self.rows, ""), self.rows)
@@ -47,7 +56,7 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(filter_rows_by_month(self.rows, "Todos"), self.rows)
 
     def test_summary_aggregates_computes_chart_data_for_one_selected_currency(self):
-        result = summary_aggregates(self.rows, {"CRC"})
+        result = summary_aggregates(self.purchase_rows(), {"CRC"})
 
         self.assertEqual(dict(result["tag_totals"]), {"Food": Decimal("1800.00")})
         self.assertEqual(dict(result["monthly_totals"]), {"2025-01": Decimal("1500.00"), "2025-02": Decimal("300.00")})
@@ -65,9 +74,22 @@ class SummaryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             summary_aggregates(self.rows, {"CRC", "USD"})
 
+    def test_summary_aggregates_counts_only_negative_purchases_as_positive_spend(self):
+        rows = [
+            ["01-ENE-25", "CARD PAYMENT", "100.00", "USD", "Payments"],
+            ["02-ENE-25", "MARKET", "-60.00", "USD", "Groceries"],
+            ["03-ENE-25", "REFUND", "15.00", "USD", "Groceries"],
+        ]
+
+        result = summary_aggregates(rows, {"USD"})
+
+        self.assertEqual(dict(result["tag_totals"]), {"Groceries": Decimal("60.00")})
+        self.assertEqual(dict(result["monthly_totals"]), {"2025-01": Decimal("60.00")})
+        self.assertEqual(result["cumulative_points"], [("2025-01-02", Decimal("60.00"))])
+
     def test_average_spend_by_tag_month_preserves_single_currency_table_semantics(self):
         result = average_spend_by_tag_month(
-            self.rows,
+            self.purchase_rows(),
             {"CRC"},
             {"Food": Decimal("1000.00")},
         )
@@ -96,12 +118,28 @@ class SummaryTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             average_spend_by_tag_month(self.rows, {"CRC", "USD"}, {"Food": 1000})
 
+    def test_average_spend_by_tag_month_counts_only_negative_purchases_as_positive_spend(self):
+        rows = [
+            ["01-ENE-25", "CARD PAYMENT", "100.00", "USD", "Payments"],
+            ["02-ENE-25", "MARKET", "-60.00", "USD", "Groceries"],
+            ["03-FEB-25", "CAFE", "-40.00", "USD", "Dining"],
+        ]
+
+        result = average_spend_by_tag_month(rows, {"USD"}, {"Groceries": Decimal("50.00")})
+
+        self.assertEqual(result["tag_global_totals"], {"Dining": Decimal("40.00"), "Groceries": Decimal("60.00")})
+        self.assertEqual(result["total_spend"], Decimal("100.00"))
+        self.assertEqual(result["totals"], {
+            "2025-01": {"USD": Decimal("60.00")},
+            "2025-02": {"USD": Decimal("40.00")},
+        })
+
     def test_summary_insights_calculates_totals_top_tags_and_largest_purchases(self):
         rows = [
-            ["01-ABR-26", "MARKET", "100.00", "USD", "Groceries"],
-            ["02-ABR-26", "CAFE", "50.00", "USD", "Dining"],
-            ["03-ABR-26", "SUPERMARKET", "25.00", "USD", "Groceries"],
-            ["04-ABR-26", "IGNORED", "999.00", "CRC", "Groceries"],
+            ["01-ABR-26", "MARKET", "-100.00", "USD", "Groceries"],
+            ["02-ABR-26", "CAFE", "-50.00", "USD", "Dining"],
+            ["03-ABR-26", "SUPERMARKET", "-25.00", "USD", "Groceries"],
+            ["04-ABR-26", "IGNORED", "-999.00", "CRC", "Groceries"],
         ]
 
         result = summary_insights(rows, {"USD"}, {}, month_key="Todos", top_n=2)
@@ -112,11 +150,27 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(result["largest_purchases"], [rows[0], rows[1]])
         self.assertIn("Total spend is 175.00 across 3 purchases.", result["messages"])
 
+    def test_summary_insights_counts_only_negative_purchases_as_positive_spend(self):
+        rows = [
+            ["01-ABR-26", "CARD PAYMENT", "100.00", "USD", "Payments"],
+            ["02-ABR-26", "MARKET", "-60.00", "USD", "Groceries"],
+            ["03-ABR-26", "REFUND", "15.00", "USD", "Groceries"],
+            ["04-ABR-26", "CAFE", "-25.00", "USD", "Dining"],
+        ]
+
+        result = summary_insights(rows, {"USD"}, {}, month_key="Todos", top_n=2)
+
+        self.assertEqual(result["total_spend"], Decimal("85.00"))
+        self.assertEqual(result["purchase_count"], 2)
+        self.assertEqual(result["top_tags"], [("Groceries", Decimal("60.00")), ("Dining", Decimal("25.00"))])
+        self.assertEqual(result["largest_purchases"], [rows[1], rows[3]])
+        self.assertIn("Total spend is 85.00 across 2 purchases.", result["messages"])
+
     def test_summary_insights_detects_over_limit_tags_with_decimal_math(self):
         rows = [
-            ["01-MAY-26", "SMALL CHARGE", "0.10", "USD", "Misc"],
-            ["02-MAY-26", "SMALL CHARGE", "0.21", "USD", "Misc"],
-            ["03-MAY-26", "NO LIMIT", "500.00", "USD", "Travel"],
+            ["01-MAY-26", "SMALL CHARGE", "-0.10", "USD", "Misc"],
+            ["02-MAY-26", "SMALL CHARGE", "-0.21", "USD", "Misc"],
+            ["03-MAY-26", "NO LIMIT", "-500.00", "USD", "Travel"],
         ]
 
         result = summary_insights(rows, {"USD"}, {"Misc": Decimal("0.30"), "Travel": Decimal("0")})
@@ -126,9 +180,9 @@ class SummaryTest(unittest.TestCase):
 
     def test_summary_insights_leads_with_budget_takeaway_when_tag_is_over_limit(self):
         rows = [
-            ["01-MAY-26", "MARKET", "100.00", "CRC", "Super"],
-            ["02-MAY-26", "PHARMACY", "80.00", "CRC", "Salud"],
-            ["03-MAY-26", "CAFE", "20.00", "CRC", "Dining"],
+            ["01-MAY-26", "MARKET", "-100.00", "CRC", "Super"],
+            ["02-MAY-26", "PHARMACY", "-80.00", "CRC", "Salud"],
+            ["03-MAY-26", "CAFE", "-20.00", "CRC", "Dining"],
         ]
 
         result = summary_insights(
@@ -147,9 +201,9 @@ class SummaryTest(unittest.TestCase):
 
     def test_summary_insights_compares_latest_month_to_previous_when_all_months_selected(self):
         rows = [
-            ["01-ABR-26", "APRIL", "100.00", "USD", "Dining"],
-            ["01-MAY-26", "MAY", "150.00", "USD", "Dining"],
-            ["02-MAY-26", "MAY EXTRA", "50.00", "USD", "Dining"],
+            ["01-ABR-26", "APRIL", "-100.00", "USD", "Dining"],
+            ["01-MAY-26", "MAY", "-150.00", "USD", "Dining"],
+            ["02-MAY-26", "MAY EXTRA", "-50.00", "USD", "Dining"],
         ]
 
         result = summary_insights(rows, {"USD"}, {}, month_key="Todos")
@@ -169,8 +223,8 @@ class SummaryTest(unittest.TestCase):
 
     def test_summary_insights_compares_selected_month_to_previous_calendar_month(self):
         rows = [
-            ["01-DIC-25", "DECEMBER", "75.00", "USD", "Dining"],
-            ["01-ENE-26", "JANUARY", "100.00", "USD", "Dining"],
+            ["01-DIC-25", "DECEMBER", "-75.00", "USD", "Dining"],
+            ["01-ENE-26", "JANUARY", "-100.00", "USD", "Dining"],
         ]
 
         result = summary_insights(rows, {"USD"}, {}, month_key="2026-01")
@@ -186,7 +240,7 @@ class SummaryTest(unittest.TestCase):
 
     def test_summary_insights_skips_malformed_rows_and_amounts(self):
         rows = [
-            ["01-MAY-26", "VALID", "10.00", "USD", "Misc"],
+            ["01-MAY-26", "VALID", "-10.00", "USD", "Misc"],
             ["02-MAY-26", "BAD AMOUNT", "oops", "USD", "Misc"],
             ["03-MAY-26", "TOO SHORT"],
         ]

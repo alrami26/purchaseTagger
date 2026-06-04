@@ -30,6 +30,24 @@ def currency_totals(rows):
     return dict(totals)
 
 
+def purchase_spend_amount(amount):
+    amount_value = parse_amount(amount)
+    if amount_value >= ZERO:
+        return None
+    return -amount_value
+
+
+def purchase_rows(rows):
+    scoped_rows = []
+    for row in rows:
+        try:
+            if purchase_spend_amount(row[2]) is not None:
+                scoped_rows.append(row)
+        except (IndexError, TypeError, ValueError):
+            pass
+    return scoped_rows
+
+
 def available_months(rows):
     months = set()
     for row in rows:
@@ -53,12 +71,18 @@ def summary_aggregates(rows, selected_currencies):
     tag_totals = defaultdict(lambda: ZERO)
     monthly_totals = defaultdict(lambda: ZERO)
     daily_totals = defaultdict(lambda: ZERO)
-    for date_str, _desc, amount, currency, tag in rows:
+    for row in rows:
+        try:
+            date_str, _desc, amount, currency, tag = row[:5]
+        except (TypeError, ValueError):
+            continue
         if currency != selected_currency:
             continue
         try:
-            amount_value = parse_amount(amount)
-        except ValueError:
+            amount_value = purchase_spend_amount(amount)
+        except (TypeError, ValueError):
+            continue
+        if amount_value is None:
             continue
         tag_totals[tag] += amount_value
 
@@ -87,12 +111,18 @@ def average_spend_by_tag_month(rows, selected_currencies, limits):
     totals = {}
     parsed_limits = {tag: parse_amount(limit) for tag, limit in limits.items()}
 
-    for date_str, _desc, amount, currency, tag in rows:
+    for row in rows:
+        try:
+            date_str, _desc, amount, currency, tag = row[:5]
+        except (TypeError, ValueError):
+            continue
         if currency != selected_currency:
             continue
         try:
-            amount_value = parse_amount(amount)
-        except ValueError:
+            amount_value = purchase_spend_amount(amount)
+        except (TypeError, ValueError):
+            continue
+        if amount_value is None:
             continue
 
         parsed_date = parse_purchase_date(date_str)
@@ -232,8 +262,10 @@ def _parse_insight_row(row, selected_currency):
     if currency != selected_currency:
         return None
     try:
-        amount_value = parse_amount(amount)
+        amount_value = purchase_spend_amount(amount)
     except (TypeError, ValueError):
+        return None
+    if amount_value is None:
         return None
 
     return {

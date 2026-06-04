@@ -7,6 +7,7 @@ A simple Python/Tkinter application to extract purchases from PDF files, tag the
 ## Features
 
 - **Multiple PDF Support**: Select one or more PDFs for batch processing.
+- **Bank & Account Type Selection**: Choose the statement bank (`BAC` or `Promerica`) and whether the import is `Credito` or `Debito`.
 - **Custom Tags & Keywords**: Manage tags, keywords, and optional limits in `tags.json` through the built-in Tag Editor.
 - **Case-Insensitive Matching**: Keywords match purchase descriptions regardless of case.
 - **Search & Filter**: Live text search filters the displayed purchases.
@@ -56,7 +57,7 @@ pip install -r requirements-dev.txt
    python purchase_tagger_app.py
    ```
 
-2. Click **Browse & Tag** and choose one or more PDF files containing purchase data. The app automatically parses the selected PDFs, tags each purchase, and displays the table.
+2. Choose the bank (`BAC` or `Promerica`) and account type (`Credito` or `Debito`), then click **Browse & Tag** and choose one or more PDF files containing purchase data. The app automatically parses the selected PDFs, tags each purchase, and displays the table.
 3. Use **Search** to filter rows by any displayed text.
 4. Click **Summary** and choose:
    - **Spend by Tag**: Pie chart of total spend per tag.
