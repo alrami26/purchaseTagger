@@ -438,6 +438,40 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         self.assertEqual(app.tag_menu.values, ["Todos"])
         self.assertEqual(app.account_type_menu.values, ["Credito", "Debito"])
 
+    def test_clear_pdfs_refreshes_visible_import_overview(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.pdf_files = ["statement.pdf"]
+        app.all_rows = [["01-ENE-25", "CAFE", "-10.00", "USD", "Dining"]]
+        app.filtered_rows = list(app.all_rows)
+        app.tree_item_rows = {}
+        app.file_label_var = SimpleVar("statement.pdf")
+        app.status_var = SimpleVar("Loaded and tagged 1 purchases")
+        app.search_var = SimpleVar("")
+        app.currency_var = SimpleVar("All currencies")
+        app.import_currency_var = SimpleVar("USD")
+        app.month_var = SimpleVar("Todos")
+        app.tag_filter_var = SimpleVar("Todos")
+        app.bank_var = SimpleVar("Promerica")
+        app.account_type_var = SimpleVar("Credito")
+        app.total_var = SimpleVar("Totals: USD 10.00")
+        app.account_type_menu = FakeMenu()
+        app.kpi_vars = {
+            "total_rows": SimpleVar("1"),
+            "visible_rows": SimpleVar("1"),
+            "untagged_rows": SimpleVar("0"),
+            "currency_count": SimpleVar("1"),
+            "over_limit_tags": SimpleVar("0"),
+        }
+        app.tags = {}
+        app.natag = "N/A"
+        app.active_view = "Imports"
+        app.apply_filter = Mock()
+        app.show_view = Mock()
+
+        app.clear_pdfs()
+
+        app.show_view.assert_called_once_with("Imports")
+
     def test_file_panel_uses_browse_and_tag_button_label(self):
         app = self.make_app()
         app.browse_pdf = Mock()

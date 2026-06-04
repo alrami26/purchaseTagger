@@ -1173,7 +1173,10 @@ class PurchaseTaggerUI(ctk.CTk):
         self._refresh_account_type_options(BANK_BAC)
         self.file_label_var.set(build_file_label(self.pdf_files))
         self.status_var.set("No PDFs selected")
-        self.apply_filter()
+        if self.__dict__.get("active_view") == "Imports":
+            self.show_view("Imports")
+        else:
+            self.apply_filter()
 
     def load(self):
         if not self.pdf_files:
