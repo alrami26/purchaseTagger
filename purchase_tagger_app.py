@@ -14,7 +14,7 @@ from purchase_extractor import (
     SUPPORTED_ACCOUNT_TYPES_BY_BANK,
     process_purchases,
 )
-from tag_store import load_tags, save_tags
+from tag_store import load_tags, merge_tags, save_tags
 from money import ZERO, format_amount, parse_amount
 from summary import (
     available_months,
@@ -110,6 +110,8 @@ class PurchaseTaggerUI(ctk.CTk):
         add_tag,
         edit_keyword,
         edit_tag,
+        export_tags_json,
+        import_tags_json,
         load_tag_details,
         open_tag_editor,
         refresh_tag_lists,

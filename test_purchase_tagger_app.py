@@ -1,4 +1,5 @@
 import unittest
+import json
 from decimal import Decimal
 import os
 import tempfile
@@ -95,6 +96,14 @@ class FakeListbox:
     def __init__(self):
         self.items = []
         self.selection = []
+        self.grid_options = None
+        self.bound_events = {}
+
+    def grid(self, **kwargs):
+        self.grid_options = kwargs
+
+    def bind(self, event, callback):
+        self.bound_events[event] = callback
 
     def delete(self, first, last=None):
         if first == 0 and last == "end":
@@ -998,6 +1007,29 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertIs(PurchaseTaggerUI._build_tags_view, tags_view._build_tags_view)
         self.assertIs(PurchaseTaggerUI.add_tag, tags_view.add_tag)
         self.assertIs(PurchaseTaggerUI.save_tags_from_view, tags_view.save_tags_from_view)
+        self.assertIs(PurchaseTaggerUI.import_tags_json, tags_view.import_tags_json)
+        self.assertIs(PurchaseTaggerUI.export_tags_json, tags_view.export_tags_json)
+
+    def test_tags_view_renders_json_import_and_export_buttons(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.workspace = FakeFrame()
+        app.tags = {}
+        app._build_page_header = Mock()
+        app._panel = lambda parent, **kwargs: FakeFrame()
+        app.refresh_tag_lists = Mock()
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.tk.Listbox", side_effect=lambda *args, **kwargs: FakeListbox()), \
+                patch("purchase_tagger_app.tk.StringVar", side_effect=SimpleVar), \
+                patch("purchase_tagger_app.ctk.CTkFrame", side_effect=FakeCtkFrame), \
+                patch("purchase_tagger_app.ctk.CTkEntry", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget) as button:
+            app._build_tags_view()
+
+        button_texts = [call.kwargs["text"] for call in button.call_args_list]
+        self.assertIn("Import JSON", button_texts)
+        self.assertIn("Export JSON", button_texts)
 
     def test_refresh_tag_lists_sorts_tags_and_clears_details(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -1103,6 +1135,134 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(app.tags["Dining"]["limit"], Decimal("42987.5"))
         warning.assert_not_called()
+
+    def test_export_tags_json_writes_current_tags_to_selected_path(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"tag_name": {"keywords": ["KEYWORD"], "limit": Decimal("10.5")}}
+        app.status_var = SimpleVar("")
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as temp_file:
+            path = temp_file.name
+
+        try:
+            with patch("purchase_tagger_app.filedialog.asksaveasfilename", return_value=path) as save_dialog, \
+                    patch("purchase_tagger_app.messagebox.showinfo") as showinfo:
+                app.export_tags_json()
+
+            self.assertEqual(save_dialog.call_args.kwargs["initialfile"], "tag_list.json")
+            with open(path, encoding="utf-8") as exported:
+                self.assertEqual(
+                    json.load(exported),
+                    {"tag_name": {"keywords": ["KEYWORD"], "limit": 10.5}},
+                )
+            showinfo.assert_called_once()
+            self.assertEqual(app.status_var.get(), f"Exported tags to {path}")
+        finally:
+            os.remove(path)
+
+    def test_import_tags_json_merges_saves_refreshes_and_reports_counts(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+        app.tag_listbox = FakeListbox()
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("")
+        app.status_var = SimpleVar("")
+        app._refresh_tag_filter_options = Mock()
+
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as temp_file:
+            path = temp_file.name
+            json.dump(
+                {
+                    "Dining": {"keywords": ["CAFE", "LUNCH"], "limit": 2500},
+                    "tag_name": {"keywords": ["KEYWORD"], "limit": 0},
+                },
+                temp_file,
+            )
+
+        try:
+            with patch("purchase_tagger_app.filedialog.askopenfilename", return_value=path), \
+                    patch("purchase_tagger_app.save_tags") as save_tags, \
+                    patch("purchase_tagger_app.messagebox.showinfo") as showinfo:
+                app.import_tags_json()
+
+            self.assertEqual(
+                app.tags,
+                {
+                    "Dining": {"keywords": ["CAFE", "LUNCH"], "limit": 2500},
+                    "tag_name": {"keywords": ["KEYWORD"], "limit": 0},
+                },
+            )
+            self.assertEqual(app.tag_listbox.items, ["Dining", "tag_name"])
+            save_tags.assert_called_once_with(app.tags)
+            app._refresh_tag_filter_options.assert_called_once()
+            showinfo.assert_called_once_with(
+                "Imported",
+                "Imported tags from JSON.\nTags added: 1\nKeywords added: 2\nLimits updated: 1",
+            )
+            self.assertEqual(app.status_var.get(), "Imported 1 tag, 2 keywords, and updated 1 limit")
+        finally:
+            os.remove(path)
+
+    def test_import_tags_json_cancel_does_not_save(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+
+        with patch("purchase_tagger_app.filedialog.askopenfilename", return_value=""), \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.import_tags_json()
+
+        self.assertEqual(app.tags, {"Dining": {"keywords": ["CAFE"], "limit": 1000}})
+        save_tags.assert_not_called()
+
+    def test_import_tags_json_invalid_json_shows_error_without_saving(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+        app.status_var = SimpleVar("")
+
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as temp_file:
+            path = temp_file.name
+            json.dump([], temp_file)
+
+        try:
+            with patch("purchase_tagger_app.filedialog.askopenfilename", return_value=path), \
+                    patch("purchase_tagger_app.save_tags") as save_tags, \
+                    patch("purchase_tagger_app.messagebox.showerror") as showerror:
+                app.import_tags_json()
+
+            self.assertEqual(app.tags, {"Dining": {"keywords": ["CAFE"], "limit": 1000}})
+            save_tags.assert_not_called()
+            showerror.assert_called_once()
+            self.assertEqual(app.status_var.get(), "Import failed")
+        finally:
+            os.remove(path)
+
+    def test_import_tags_json_save_failure_preserves_current_tags(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+        app.tag_listbox = FakeListbox()
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("")
+        app.status_var = SimpleVar("")
+        app.refresh_tag_lists = Mock()
+        app._refresh_tag_filter_options = Mock()
+
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as temp_file:
+            path = temp_file.name
+            json.dump({"Travel": {"keywords": ["UBER"], "limit": 2500}}, temp_file)
+
+        try:
+            with patch("purchase_tagger_app.filedialog.askopenfilename", return_value=path), \
+                    patch("purchase_tagger_app.save_tags", side_effect=OSError("disk full")), \
+                    patch("purchase_tagger_app.messagebox.showerror") as showerror:
+                app.import_tags_json()
+
+            self.assertEqual(app.tags, {"Dining": {"keywords": ["CAFE"], "limit": 1000}})
+            app.refresh_tag_lists.assert_not_called()
+            app._refresh_tag_filter_options.assert_not_called()
+            showerror.assert_called_once()
+            self.assertEqual(app.status_var.get(), "Import failed")
+        finally:
+            os.remove(path)
 
     def test_tag_workspace_add_edit_remove_tag(self):
         app = object.__new__(PurchaseTaggerUI)

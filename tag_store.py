@@ -65,6 +65,40 @@ def save_tags(tags, path=None):
         raise
 
 
+def merge_tags(current_tags, imported_tags):
+    current = _validate_and_migrate_tags(current_tags, allow_decimal=True)
+    imported = _validate_and_migrate_tags(imported_tags, allow_decimal=True)
+    merged = {
+        tag: {
+            "keywords": list(info.get("keywords", [])),
+            "limit": info.get("limit", 0),
+        }
+        for tag, info in current.items()
+    }
+    counts = {"tags_added": 0, "keywords_added": 0, "limits_updated": 0}
+
+    for tag, info in imported.items():
+        imported_keywords = list(info.get("keywords", []))
+        imported_limit = info.get("limit", 0)
+        if tag not in merged:
+            merged[tag] = {"keywords": imported_keywords, "limit": imported_limit}
+            counts["tags_added"] += 1
+            counts["keywords_added"] += len(imported_keywords)
+            continue
+
+        existing_keywords = merged[tag].setdefault("keywords", [])
+        for keyword in imported_keywords:
+            if keyword not in existing_keywords:
+                existing_keywords.append(keyword)
+                counts["keywords_added"] += 1
+
+        if merged[tag].get("limit", 0) != imported_limit:
+            counts["limits_updated"] += 1
+        merged[tag]["limit"] = imported_limit
+
+    return merged, counts
+
+
 def _backup_path(path):
     return path.with_suffix(path.suffix + ".bak")
 
