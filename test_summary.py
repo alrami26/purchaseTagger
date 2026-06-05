@@ -5,6 +5,7 @@ import unittest
 from summary import (
     available_months,
     average_spend_by_tag_month,
+    budget_metadata_aggregates,
     currency_totals,
     filter_rows_by_month,
     filter_rows_by_text,
@@ -134,6 +135,33 @@ class SummaryTest(unittest.TestCase):
             "2025-02": {"USD": Decimal("40.00")},
         })
 
+    def test_budget_metadata_aggregates_groups_spend_by_budget_metadata(self):
+        rows = [
+            ["01-ENE-25", "CARD PAYMENT", "100.00", "USD", "Payments"],
+            ["02-ENE-25", "MARKET", "-60.00", "USD", "Groceries"],
+            ["03-ENE-25", "CAFE", "-40.00", "USD", "Dining"],
+            ["04-ENE-25", "UNKNOWN", "-10.00", "USD", "N/A"],
+        ]
+        tags = {
+            "Groceries": {
+                "budget_type": "Expense",
+                "parent_category": "Alimentación",
+                "financial_purpose": "Necesidad",
+            },
+            "Dining": {
+                "budget_type": "Expense",
+                "parent_category": "Alimentación",
+                "financial_purpose": "Deseo",
+            },
+        }
+
+        result = budget_metadata_aggregates(rows, {"USD"}, tags)
+
+        self.assertEqual(result["by_budget_type"], {"Expense": Decimal("100.00"), "Sin clasificar": Decimal("10.00")})
+        self.assertEqual(result["by_parent_category"], {"Alimentación": Decimal("100.00"), "Sin clasificar": Decimal("10.00")})
+        self.assertNotIn("by_subcategory", result)
+        self.assertEqual(result["by_financial_purpose"], {"Deseo": Decimal("40.00"), "Necesidad": Decimal("60.00"), "Sin clasificar": Decimal("10.00")})
+
     def test_summary_insights_calculates_totals_top_tags_and_largest_purchases(self):
         rows = [
             ["01-ABR-26", "MARKET", "-100.00", "USD", "Groceries"],
@@ -148,7 +176,7 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(result["purchase_count"], 3)
         self.assertEqual(result["top_tags"], [("Groceries", Decimal("125.00")), ("Dining", Decimal("50.00"))])
         self.assertEqual(result["largest_purchases"], [rows[0], rows[1]])
-        self.assertIn("Total spend is 175.00 across 3 purchases.", result["messages"])
+        self.assertIn("El gasto total es 175.00 en 3 compras.", result["messages"])
 
     def test_summary_insights_counts_only_negative_purchases_as_positive_spend(self):
         rows = [
@@ -164,7 +192,7 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(result["purchase_count"], 2)
         self.assertEqual(result["top_tags"], [("Groceries", Decimal("60.00")), ("Dining", Decimal("25.00"))])
         self.assertEqual(result["largest_purchases"], [rows[1], rows[3]])
-        self.assertIn("Total spend is 85.00 across 2 purchases.", result["messages"])
+        self.assertIn("El gasto total es 85.00 en 2 compras.", result["messages"])
 
     def test_summary_insights_detects_over_limit_tags_with_decimal_math(self):
         rows = [
@@ -176,7 +204,7 @@ class SummaryTest(unittest.TestCase):
         result = summary_insights(rows, {"USD"}, {"Misc": Decimal("0.30"), "Travel": Decimal("0")})
 
         self.assertEqual(result["over_limit_tags"], [("Misc", Decimal("0.31"), Decimal("0.30"))])
-        self.assertIn("Misc is 0.01 over its limit.", result["messages"])
+        self.assertIn("Misc supera su presupuesto por 0.01.", result["messages"])
 
     def test_summary_insights_leads_with_budget_takeaway_when_tag_is_over_limit(self):
         rows = [
@@ -191,12 +219,12 @@ class SummaryTest(unittest.TestCase):
             {"Super": Decimal("70.00"), "Salud": Decimal("75.00")},
         )
 
-        self.assertEqual(result["headline"], "Super is over its limit by CRC 30.00.")
+        self.assertEqual(result["headline"], "Super supera su presupuesto por CRC 30.00.")
         self.assertEqual(
             result["detail"],
-            "- Super accounts for 50.0% of spend.\n"
-            "- Salud is also over by CRC 5.00.\n"
-            "- Total spend is CRC 200.00 across 3 purchases.",
+            "- Super representa el 50.0% del gasto.\n"
+            "- Salud también supera el presupuesto por CRC 5.00.\n"
+            "- El gasto total es CRC 200.00 en 3 compras.",
         )
 
     def test_summary_insights_compares_latest_month_to_previous_when_all_months_selected(self):
@@ -219,7 +247,7 @@ class SummaryTest(unittest.TestCase):
                 "percent_change": Decimal("100.00"),
             },
         )
-        self.assertIn("2026-05 spend is 100.00 more than 2026-04.", result["messages"])
+        self.assertIn("El gasto de 2026-05 es 100.00 más que 2026-04.", result["messages"])
 
     def test_summary_insights_compares_selected_month_to_previous_calendar_month(self):
         rows = [
