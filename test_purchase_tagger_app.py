@@ -5,7 +5,13 @@ import os
 import tempfile
 from unittest.mock import Mock, patch
 
-from purchase_tagger_app import PurchaseTaggerUI, display_purchase_row
+from purchase_tagger_app import (
+    DEFAULT_WINDOW_GEOMETRY,
+    DEFAULT_WINDOW_HEIGHT,
+    DEFAULT_WINDOW_WIDTH,
+    PurchaseTaggerUI,
+    display_purchase_row,
+)
 from views import tags as tags_view
 
 
@@ -67,10 +73,13 @@ class FakeTree:
 class FakeMenu:
     def __init__(self):
         self.values = []
+        self.state = "normal"
 
     def configure(self, **kwargs):
         if "values" in kwargs:
             self.values = list(kwargs["values"])
+        if "state" in kwargs:
+            self.state = kwargs["state"]
 
 
 class DeadTree:
@@ -98,12 +107,23 @@ class FakeListbox:
         self.selection = []
         self.grid_options = None
         self.bound_events = {}
+        self.state = "normal"
+        self.visible = False
 
     def grid(self, **kwargs):
-        self.grid_options = kwargs
+        if kwargs:
+            self.grid_options = kwargs
+        self.visible = True
+
+    def grid_remove(self):
+        self.visible = False
 
     def bind(self, event, callback):
         self.bound_events[event] = callback
+
+    def configure(self, **kwargs):
+        if "state" in kwargs:
+            self.state = kwargs["state"]
 
     def delete(self, first, last=None):
         if first == 0 and last == "end":
@@ -141,11 +161,11 @@ class FakeFrame:
     def winfo_children(self):
         return list(self.children)
 
-    def grid_rowconfigure(self, row, weight=0):
-        self.grid_rows[row] = weight
+    def grid_rowconfigure(self, row, weight=0, **kwargs):
+        self.grid_rows[row] = {"weight": weight, **kwargs}
 
-    def grid_columnconfigure(self, column, weight=0):
-        self.grid_columns[column] = weight
+    def grid_columnconfigure(self, column, weight=0, **kwargs):
+        self.grid_columns[column] = {"weight": weight, **kwargs}
 
     def update_idletasks(self):
         pass
@@ -158,9 +178,18 @@ class FakeWidget:
         self.grid_options = None
         self.packed = False
         self.destroyed = False
+        self.state = kwargs.get("state", "normal")
+        self.visible = False
+        self.textvariable = kwargs.get("textvariable")
+        self.value = ""
 
     def grid(self, **kwargs):
-        self.grid_options = kwargs
+        if kwargs:
+            self.grid_options = kwargs
+        self.visible = True
+
+    def grid_remove(self):
+        self.visible = False
 
     def pack(self, **kwargs):
         self.packed = True
@@ -169,7 +198,30 @@ class FakeWidget:
         self.destroyed = True
 
     def set(self, *args):
-        pass
+        if args:
+            self.value = args[0]
+            if self.textvariable is not None:
+                self.textvariable.set(args[0])
+
+    def get(self):
+        if self.textvariable is not None:
+            return self.textvariable.get()
+        return self.value
+
+    def delete(self, first, last=None):
+        self.value = ""
+        if self.textvariable is not None:
+            self.textvariable.set("")
+
+    def insert(self, index, value):
+        self.value = value
+        if self.textvariable is not None:
+            self.textvariable.set(value)
+
+    def configure(self, **kwargs):
+        self.kwargs.update(kwargs)
+        if "state" in kwargs:
+            self.state = kwargs["state"]
 
 
 class FakeCtkFrame(FakeFrame):
@@ -180,10 +232,64 @@ class FakeCtkFrame(FakeFrame):
         self.args = args
         self.kwargs = kwargs
         self.grid_options = None
+        self.visible = False
         FakeCtkFrame.instances.append(self)
 
     def grid(self, **kwargs):
+        if kwargs:
+            self.grid_options = kwargs
+        self.visible = True
+
+    def grid_remove(self):
+        self.visible = False
+
+
+class FakeCtkTabview:
+    instances = []
+
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        self.grid_options = None
+        self.tab_names = []
+        self.tabs = {}
+        self.selected = None
+        self.command = kwargs.get("command")
+        FakeCtkTabview.instances.append(self)
+
+    def add(self, name):
+        self.tab_names.append(name)
+        if self.selected is None:
+            self.selected = name
+        self.tabs[name] = FakeCtkFrame()
+        return self.tabs[name]
+
+    def get(self):
+        return self.selected
+
+    def set(self, name):
+        self.selected = name
+        if self.command is not None:
+            self.command()
+
+    def grid(self, **kwargs):
         self.grid_options = kwargs
+
+
+def fake_widget_descends_from(widget, ancestor):
+    current = widget
+    while current is not None:
+        if current is ancestor:
+            return True
+        args = getattr(current, "args", ())
+        current = args[0] if args else None
+    return False
+
+
+def attach_tag_detail_widgets(app):
+    widgets = [FakeWidget(), FakeMenu(), FakeListbox(), FakeWidget()]
+    app.tag_detail_widgets = widgets
+    return widgets
 
 
 class FakeCanvas:
@@ -350,10 +456,15 @@ class FakePurchaseTree(FakeWidget):
 
 
 class PurchaseTaggerBrowseTest(unittest.TestCase):
+    def test_default_window_size_is_about_thirteen_percent_larger(self):
+        self.assertEqual(DEFAULT_WINDOW_WIDTH, 1020)
+        self.assertEqual(DEFAULT_WINDOW_HEIGHT, 680)
+        self.assertEqual(DEFAULT_WINDOW_GEOMETRY, "1020x680")
+
     def make_app(self, files=None):
         app = object.__new__(PurchaseTaggerUI)
         app.pdf_files = list(files or [])
-        app.file_label_var = SimpleVar("No PDFs selected")
+        app.file_label_var = SimpleVar("No hay PDFs seleccionados")
         app.status_var = SimpleVar("")
         app.bank_var = SimpleVar("BAC")
         app.account_type_var = SimpleVar("Credito")
@@ -370,7 +481,7 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
             app.browse_pdf()
 
         self.assertEqual(app.pdf_files, [r"C:\tmp\a.pdf", r"C:\tmp\b.pdf"])
-        self.assertEqual(app.file_label_var.get(), "2 PDFs selected")
+        self.assertEqual(app.file_label_var.get(), "2 PDFs seleccionados")
         app.load.assert_called_once_with()
 
     def test_browse_pdf_cancel_keeps_current_selection_without_loading(self):
@@ -396,8 +507,8 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         app.tree_item_rows = {"old": rows[0]}
         app.tree = FakeTree(["old"])
         app.tree.items["old"] = rows[0]
-        app.file_label_var = SimpleVar("2 PDFs selected")
-        app.status_var = SimpleVar("Loaded and tagged 2 purchases")
+        app.file_label_var = SimpleVar("2 PDFs seleccionados")
+        app.status_var = SimpleVar("Se cargaron y etiquetaron 2 compras")
         app.search_var = SimpleVar("banana")
         app.currency_var = SimpleVar("CRC")
         app.import_currency_var = SimpleVar("USD")
@@ -405,8 +516,8 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         app.tag_filter_var = SimpleVar("Groceries")
         app.bank_var = SimpleVar("Promerica")
         app.account_type_var = SimpleVar("Credito")
-        app.total_var = SimpleVar("Totals: CRC 20.00")
-        app.visible_count_var = SimpleVar("Showing 2 purchases")
+        app.total_var = SimpleVar("Totales: CRC 20.00")
+        app.visible_count_var = SimpleVar("Mostrando 2 compras")
         app.kpi_vars = {
             "total_rows": SimpleVar("2"),
             "visible_rows": SimpleVar("2"),
@@ -429,20 +540,20 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         self.assertEqual(app.filtered_rows, [])
         self.assertEqual(app.tree_item_rows, {})
         self.assertEqual(app.tree.deleted, ["old"])
-        self.assertEqual(app.file_label_var.get(), "No PDFs selected")
-        self.assertEqual(app.status_var.get(), "No PDFs selected")
+        self.assertEqual(app.file_label_var.get(), "No hay PDFs seleccionados")
+        self.assertEqual(app.status_var.get(), "No hay PDFs seleccionados")
         self.assertEqual(app.search_var.get(), "")
-        self.assertEqual(app.currency_var.get(), "All currencies")
+        self.assertEqual(app.currency_var.get(), "Todas las monedas")
         self.assertEqual(app.import_currency_var.get(), "")
         self.assertEqual(app.month_var.get(), "Todos")
         self.assertEqual(app.tag_filter_var.get(), "Todos")
         self.assertEqual(app.bank_var.get(), "BAC")
         self.assertEqual(app.account_type_var.get(), "Credito")
-        self.assertEqual(app.total_var.get(), "Totals: 0.00")
-        self.assertEqual(app.visible_count_var.get(), "Showing 0 purchases")
+        self.assertEqual(app.total_var.get(), "Totales: 0.00")
+        self.assertEqual(app.visible_count_var.get(), "Mostrando 0 compras")
         self.assertEqual(app.kpi_vars["total_rows"].get(), "0")
         self.assertEqual(app.kpi_vars["visible_rows"].get(), "0")
-        self.assertEqual(app.currency_menu.values, ["All currencies"])
+        self.assertEqual(app.currency_menu.values, ["Todas las monedas"])
         self.assertEqual(app.month_menu.values, ["Todos"])
         self.assertEqual(app.tag_menu.values, ["Todos"])
         self.assertEqual(app.account_type_menu.values, ["Credito", "Debito"])
@@ -454,15 +565,15 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         app.filtered_rows = list(app.all_rows)
         app.tree_item_rows = {}
         app.file_label_var = SimpleVar("statement.pdf")
-        app.status_var = SimpleVar("Loaded and tagged 1 purchases")
+        app.status_var = SimpleVar("Se cargaron y etiquetaron 1 compras")
         app.search_var = SimpleVar("")
-        app.currency_var = SimpleVar("All currencies")
+        app.currency_var = SimpleVar("Todas las monedas")
         app.import_currency_var = SimpleVar("USD")
         app.month_var = SimpleVar("Todos")
         app.tag_filter_var = SimpleVar("Todos")
         app.bank_var = SimpleVar("Promerica")
         app.account_type_var = SimpleVar("Credito")
-        app.total_var = SimpleVar("Totals: USD 10.00")
+        app.total_var = SimpleVar("Totales: USD 10.00")
         app.account_type_menu = FakeMenu()
         app.kpi_vars = {
             "total_rows": SimpleVar("1"),
@@ -494,8 +605,8 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
             app._build_file_panel(FakeFrame(), row=0)
 
         button_texts = [call.kwargs["text"] for call in button.call_args_list]
-        self.assertIn("Browse & Tag", button_texts)
-        self.assertNotIn("Browse", button_texts)
+        self.assertIn("Buscar y etiquetar", button_texts)
+        self.assertNotIn("Buscar", button_texts)
 
     def test_file_panel_renders_bank_and_account_type_selectors(self):
         app = self.make_app()
@@ -510,8 +621,8 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
             app._build_file_panel(FakeFrame(), row=0)
 
         label_texts = [call.kwargs.get("text") for call in label.call_args_list]
-        self.assertIn("Bank", label_texts)
-        self.assertIn("Type", label_texts)
+        self.assertIn("Banco", label_texts)
+        self.assertIn("Tipo", label_texts)
         self.assertEqual(option_menu.call_args_list[0].kwargs["values"], ["BAC", "Promerica"])
         self.assertIs(option_menu.call_args_list[0].kwargs["variable"], app.bank_var)
         self.assertEqual(option_menu.call_args_list[1].kwargs["values"], ["Credito", "Debito"])
@@ -573,10 +684,10 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         self.assertEqual(data["currencies"], "USD")
         self.assertEqual(data["untagged_count"], 1)
         self.assertEqual(data["over_limit_count"], 1)
-        self.assertEqual(data["month_range"], "2025-01 to 2025-02")
+        self.assertEqual(data["month_range"], "2025-01 a 2025-02")
         self.assertEqual(data["top_tag"], "Groceries 90.00")
         self.assertEqual(data["largest_purchase"], "MARKET USD 90.00")
-        self.assertEqual(data["headline"], "Dining is over its limit by USD 30.00.")
+        self.assertEqual(data["headline"], "Dining supera su presupuesto por USD 30.00.")
 
     def test_import_overview_data_keeps_general_counts_for_multiple_currencies(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -600,7 +711,7 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         self.assertEqual(data["untagged_count"], 0)
         self.assertEqual(data["top_tag"], "Dining 80.00")
         self.assertEqual(data["largest_purchase"], "CAFE USD 80.00")
-        self.assertEqual(data["headline"], "Dining is driving this period's spend.")
+        self.assertEqual(data["headline"], "Dining concentra el gasto de este periodo.")
 
     def test_import_overview_data_falls_back_to_first_available_currency(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -630,11 +741,11 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
             "currencies": "USD",
             "untagged_count": 1,
             "over_limit_count": 1,
-            "month_range": "2025-01 to 2025-02",
+            "month_range": "2025-01 a 2025-02",
             "top_tag": "Groceries 90.00",
             "largest_purchase": "MARKET USD 90.00",
-            "headline": "Dining is over its limit by USD 30.00.",
-            "detail": "- Groceries accounts for 50.0% of spend.",
+            "headline": "Dining supera su presupuesto por USD 30.00.",
+            "detail": "- Groceries representa el 50.0% del gasto.",
             "currency_options": ["CRC", "USD"],
             "selected_currency": "USD",
         })
@@ -649,16 +760,16 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
 
         label_texts = [call.kwargs.get("text") for call in label.call_args_list]
         for expected in (
-            "Import Overview",
-            "Files",
-            "Purchases Loaded",
-            "Currencies",
-            "Month Coverage",
-            "Untagged",
-            "Over Limit",
-            "Top Tag",
-            "Largest Purchase",
-            "Insights",
+            "Resumen de importación",
+            "Archivos",
+            "Compras cargadas",
+            "Monedas",
+            "Rango de meses",
+            "Sin etiqueta",
+            "Sobre presupuesto",
+            "Etiqueta principal",
+            "Compra mayor",
+            "Hallazgos",
         ):
             self.assertIn(expected, label_texts)
         option_menu.assert_called_once()
@@ -792,7 +903,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.tree_item_rows = {"stale": rows[0]}
         app.tree = DeadTree()
         app.search_var = SimpleVar("")
-        app.currency_var = SimpleVar("All currencies")
+        app.currency_var = SimpleVar("Todas las monedas")
         app.month_var = SimpleVar("Todos")
         app.tag_filter_var = SimpleVar("Todos")
         app.total_var = SimpleVar("")
@@ -810,7 +921,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         self.assertEqual(app.filtered_rows, rows)
         self.assertEqual(app.tree_item_rows, {})
-        self.assertEqual(app.total_var.get(), "Totals: USD 10.00")
+        self.assertEqual(app.total_var.get(), "Totales: USD 10.00")
 
     def test_apply_filter_refreshes_live_tree_totals_kpis_and_filter_options(self):
         rows = [
@@ -847,13 +958,13 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.filtered_rows, [rows[1]])
         self.assertEqual(app.tree.deleted, ["old"])
         self.assertEqual(list(app.tree_item_rows.values()), [rows[1]])
-        self.assertEqual(app.total_var.get(), "Totals: CRC 20.00")
-        self.assertEqual(app.visible_count_var.get(), "Showing 1 purchases")
+        self.assertEqual(app.total_var.get(), "Totales: CRC 20.00")
+        self.assertEqual(app.visible_count_var.get(), "Mostrando 1 compras")
         self.assertEqual(app.tree.items["item-1"], ["02-FEB-25", "BANANA MARKET", "+", "20.00", "CRC", "Groceries"])
         self.assertEqual(app.tree.items["item-1"][5], "Groceries")
         self.assertEqual(app.kpi_vars["total_rows"].get(), "2")
         self.assertEqual(app.kpi_vars["visible_rows"].get(), "1")
-        self.assertEqual(app.currency_menu.values, ["All currencies", "CRC", "USD"])
+        self.assertEqual(app.currency_menu.values, ["Todas las monedas", "CRC", "USD"])
         self.assertEqual(app.month_menu.values, ["Todos", "2025-01", "2025-02"])
         self.assertEqual(app.tag_menu.values, ["Todos", "Groceries", "Shopping"])
 
@@ -873,9 +984,9 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(tree.columns, expected_columns)
         self.assertEqual(tree.displaycolumns, expected_columns)
         self.assertEqual(tree.show, "headings")
-        self.assertEqual(tree.headings["sign"]["text"], "Sign")
+        self.assertEqual(tree.headings["sign"]["text"], "Signo")
         self.assertEqual(tree.column_options["sign"]["anchor"], "center")
-        self.assertEqual(tree.headings["tag"]["text"], "Tag")
+        self.assertEqual(tree.headings["tag"]["text"], "Etiqueta")
         self.assertGreaterEqual(tree.column_options["tag"]["width"], 100)
         self.assertEqual(tree.column_options["tag"]["anchor"], "w")
         self.assertIn("xscrollcommand", tree.configure_options)
@@ -910,12 +1021,12 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         app.apply_filter()
 
-        self.assertEqual(app.currency_var.get(), "All currencies")
+        self.assertEqual(app.currency_var.get(), "Todas las monedas")
         self.assertEqual(app.month_var.get(), "Todos")
         self.assertEqual(app.tag_filter_var.get(), "Todos")
         self.assertEqual(app.filtered_rows, rows)
-        self.assertEqual(app.total_var.get(), "Totals: CRC 20.00; USD 10.00")
-        self.assertEqual(app.visible_count_var.get(), "Showing 2 purchases")
+        self.assertEqual(app.total_var.get(), "Totales: CRC 20.00; USD 10.00")
+        self.assertEqual(app.visible_count_var.get(), "Mostrando 2 compras")
 
     def test_assign_tag_reapplies_active_tag_filter(self):
         rows = [
@@ -933,7 +1044,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.tree.items["item-a"] = rows[0]
         app.tree.items["item-b"] = rows[1]
         app.search_var = SimpleVar("")
-        app.currency_var = SimpleVar("All currencies")
+        app.currency_var = SimpleVar("Todas las monedas")
         app.month_var = SimpleVar("Todos")
         app.tag_filter_var = SimpleVar("N/A")
         app.total_var = SimpleVar("")
@@ -956,8 +1067,8 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         self.assertEqual(app.filtered_rows, [rows[1]])
         self.assertEqual(list(app.tree_item_rows.values()), [rows[1]])
-        self.assertEqual(app.visible_count_var.get(), "Showing 1 purchases")
-        self.assertEqual(app.total_var.get(), "Totals: USD 20.00")
+        self.assertEqual(app.visible_count_var.get(), "Mostrando 1 compras")
+        self.assertEqual(app.total_var.get(), "Totales: USD 20.00")
         self.assertEqual(app.kpi_vars["untagged_rows"].get(), "1")
 
     def test_clear_workspace_widget_refs_preserves_app_state_vars(self):
@@ -970,8 +1081,8 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.month_var = SimpleVar("Todos")
         app.search_var = SimpleVar("apple")
         app.tag_filter_var = SimpleVar("N/A")
-        app.file_label_var = SimpleVar("No PDFs selected")
-        app.total_var = SimpleVar("Totals: 0.00")
+        app.file_label_var = SimpleVar("No hay PDFs seleccionados")
+        app.total_var = SimpleVar("Totales: 0.00")
         app.kpi_vars = {"total_rows": SimpleVar("0")}
 
         app._clear_workspace_widget_refs()
@@ -981,8 +1092,8 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.month_var.get(), "Todos")
         self.assertEqual(app.search_var.get(), "apple")
         self.assertEqual(app.tag_filter_var.get(), "N/A")
-        self.assertEqual(app.file_label_var.get(), "No PDFs selected")
-        self.assertEqual(app.total_var.get(), "Totals: 0.00")
+        self.assertEqual(app.file_label_var.get(), "No hay PDFs seleccionados")
+        self.assertEqual(app.total_var.get(), "Totales: 0.00")
         self.assertIn("total_rows", app.kpi_vars)
 
     def test_open_summary_routes_to_workspace_summary_view(self):
@@ -1009,27 +1120,479 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertIs(PurchaseTaggerUI.save_tags_from_view, tags_view.save_tags_from_view)
         self.assertIs(PurchaseTaggerUI.import_tags_json, tags_view.import_tags_json)
         self.assertIs(PurchaseTaggerUI.export_tags_json, tags_view.export_tags_json)
+        self.assertIs(PurchaseTaggerUI.add_parent_category, tags_view.add_parent_category)
+        self.assertIs(PurchaseTaggerUI.on_parent_category_selected, tags_view.on_parent_category_selected)
+        self.assertIs(PurchaseTaggerUI.on_tags_tab_changed, tags_view.on_tags_tab_changed)
+        self.assertIs(PurchaseTaggerUI.rename_parent_category, tags_view.rename_parent_category)
+        self.assertIs(PurchaseTaggerUI.remove_parent_category, tags_view.remove_parent_category)
 
     def test_tags_view_renders_json_import_and_export_buttons(self):
         app = object.__new__(PurchaseTaggerUI)
         app.workspace = FakeFrame()
         app.tags = {}
         app._build_page_header = Mock()
-        app._panel = lambda parent, **kwargs: FakeFrame()
+        panels = []
+
+        def make_panel(parent, **kwargs):
+            panel = FakeCtkFrame(parent)
+            panels.append(panel)
+            return panel
+
+        app._panel = make_panel
         app.refresh_tag_lists = Mock()
+        FakeCtkFrame.instances = []
+        FakeCtkTabview.instances = []
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.tk.Listbox", side_effect=lambda *args, **kwargs: FakeListbox()) as listbox, \
+                patch("purchase_tagger_app.tk.StringVar", side_effect=SimpleVar), \
+                patch("purchase_tagger_app.ctk.CTkFrame", side_effect=FakeCtkFrame), \
+                patch("purchase_tagger_app.ctk.CTkTabview", side_effect=FakeCtkTabview), \
+                patch("purchase_tagger_app.ctk.CTkEntry", side_effect=FakeWidget) as entry, \
+                patch("purchase_tagger_app.ctk.CTkOptionMenu", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkComboBox", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget) as button:
+            app._build_tags_view()
+
+        self.assertTrue(FakeCtkTabview.instances)
+        tab_names = FakeCtkTabview.instances[0].tab_names
+        self.assertEqual(tab_names, ["Etiquetas", "Categorías"])
+        button_texts = [call.kwargs["text"] for call in button.call_args_list]
+        self.assertIn("Importar JSON", button_texts)
+        self.assertIn("Exportar JSON", button_texts)
+        category_button_texts = [
+            call.kwargs["text"]
+            for call in button.call_args_list
+            if fake_widget_descends_from(call.args[0], app.category_actions_section)
+        ]
+        self.assertEqual(category_button_texts, ["Agregar nuevo", "Editar", "Eliminar"])
+        category_entry_calls = [
+            call
+            for call in entry.call_args_list
+            if fake_widget_descends_from(call.args[0], app.category_actions_section)
+        ]
+        self.assertEqual(len(category_entry_calls), 1)
+        self.assertIs(category_entry_calls[0].kwargs["textvariable"], app.selected_category_var)
+        content = FakeCtkFrame.instances[0]
+        self.assertEqual(content.grid_columns[0], {"weight": 0, "minsize": 330})
+        self.assertEqual(content.grid_columns[1], {"weight": 1})
+        tag_listbox_call, category_listbox_call = listbox.call_args_list[:2]
+        self.assertEqual(tag_listbox_call.kwargs["width"], category_listbox_call.kwargs["width"])
+        self.assertEqual(tag_listbox_call.kwargs["height"], category_listbox_call.kwargs["height"])
+        self.assertEqual(app.tag_management_label.grid_options, app.category_management_label.grid_options)
+        self.assertEqual(app.tag_actions_frame.grid_options, app.category_actions_section.grid_options)
+        right_panel = panels[1]
+        right_side_actions = {"Agregar nuevo", "Editar", "Eliminar"}
+        for call in button.call_args_list:
+            if call.kwargs["text"] in right_side_actions:
+                self.assertTrue(fake_widget_descends_from(call.args[0], right_panel), call.kwargs["text"])
+
+    def test_tags_view_switches_right_panel_sections_by_active_tab(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.workspace = FakeFrame()
+        app.tags = {"Dining": {"keywords": [], "parent_category": "Comida"}}
+        app._build_page_header = Mock()
+        app._panel = lambda parent, **kwargs: FakeCtkFrame(parent)
+        FakeCtkTabview.instances = []
 
         with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
                 patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget), \
                 patch("purchase_tagger_app.tk.Listbox", side_effect=lambda *args, **kwargs: FakeListbox()), \
                 patch("purchase_tagger_app.tk.StringVar", side_effect=SimpleVar), \
                 patch("purchase_tagger_app.ctk.CTkFrame", side_effect=FakeCtkFrame), \
+                patch("purchase_tagger_app.ctk.CTkTabview", side_effect=FakeCtkTabview), \
                 patch("purchase_tagger_app.ctk.CTkEntry", side_effect=FakeWidget), \
-                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget) as button:
+                patch("purchase_tagger_app.ctk.CTkOptionMenu", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkComboBox", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget):
             app._build_tags_view()
 
-        button_texts = [call.kwargs["text"] for call in button.call_args_list]
-        self.assertIn("Import JSON", button_texts)
-        self.assertIn("Export JSON", button_texts)
+        self.assertEqual(app.tag_detail_title.kwargs["text"], "Etiqueta seleccionada")
+        self.assertTrue(app.tag_actions_frame.visible)
+        self.assertTrue(app.tag_form.visible)
+        self.assertTrue(app.keyword_listbox.visible)
+        self.assertTrue(app.keyword_buttons_frame.visible)
+        self.assertFalse(app.category_actions_section.visible)
+        self.assertEqual(app.tag_name_entry.state, "disabled")
+
+        app.tags_tabview.set("Categorías")
+
+        self.assertEqual(app.tag_detail_title.kwargs["text"], "Categoría seleccionada")
+        self.assertFalse(app.tag_actions_frame.visible)
+        self.assertFalse(app.tag_form.visible)
+        self.assertFalse(app.keyword_listbox.visible)
+        self.assertFalse(app.keyword_buttons_frame.visible)
+        self.assertTrue(app.category_actions_section.visible)
+        self.assertEqual(app.selected_category_var.get(), "Selecciona una categoría")
+        self.assertEqual(app.selected_category_label.state, "disabled")
+
+        app.parent_category_listbox.items = ["Comida"]
+        app.parent_category_listbox.selection_set(0)
+        app.on_parent_category_selected()
+
+        self.assertEqual(app.selected_category_var.get(), "Comida")
+        self.assertEqual(app.selected_category_label.state, "normal")
+        self.assertEqual(app.tag_detail_title.kwargs["text"], "Categoría seleccionada")
+
+    def test_edit_tag_renames_selected_tag_from_inline_name_input(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.workspace = FakeFrame()
+        app.tags = {"Dining": {"keywords": ["cafe"], "limit": 75, "parent_category": "Comida"}}
+        app.status_var = SimpleVar("")
+        app._build_page_header = Mock()
+        app._panel = lambda parent, **kwargs: FakeCtkFrame(parent)
+        FakeCtkTabview.instances = []
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.tk.Listbox", side_effect=lambda *args, **kwargs: FakeListbox()), \
+                patch("purchase_tagger_app.tk.StringVar", side_effect=SimpleVar), \
+                patch("purchase_tagger_app.ctk.CTkFrame", side_effect=FakeCtkFrame), \
+                patch("purchase_tagger_app.ctk.CTkTabview", side_effect=FakeCtkTabview), \
+                patch("purchase_tagger_app.ctk.CTkEntry", side_effect=FakeWidget) as entry, \
+                patch("purchase_tagger_app.ctk.CTkOptionMenu", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkComboBox", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget):
+            app._build_tags_view()
+
+        self.assertIn("tag_name_var", app.__dict__)
+        tag_name_entries = [
+            call
+            for call in entry.call_args_list
+            if call.kwargs.get("textvariable") is app.tag_name_var
+        ]
+        self.assertEqual(len(tag_name_entries), 1)
+
+        app.tag_listbox.selection_set(0)
+        self.assertTrue(app.load_tag_details())
+        self.assertEqual(app.tag_name_var.get(), "Dining")
+        self.assertEqual(app.tag_name_entry.state, "normal")
+
+        app.tag_name_var.set("Food")
+        with patch("purchase_tagger_app.simple_input") as simple_input, \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.edit_tag()
+
+        self.assertNotIn("Dining", app.tags)
+        self.assertEqual(app.tags["Food"]["keywords"], ["cafe"])
+        simple_input.assert_not_called()
+        save_tags.assert_called_once_with(app.tags)
+
+    def test_rename_parent_category_uses_inline_category_input(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.workspace = FakeFrame()
+        app.tags = {
+            "Dining": {"keywords": [], "limit": 75, "parent_category": "Comida"},
+            "Groceries": {"keywords": [], "limit": 50, "parent_category": "Comida"},
+            "Bus": {"keywords": [], "limit": 10, "parent_category": "Transporte"},
+        }
+        app.status_var = SimpleVar("")
+        app._build_page_header = Mock()
+        app._panel = lambda parent, **kwargs: FakeCtkFrame(parent)
+        app._refresh_tag_filter_options = Mock()
+        FakeCtkTabview.instances = []
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.tk.Listbox", side_effect=lambda *args, **kwargs: FakeListbox()), \
+                patch("purchase_tagger_app.tk.StringVar", side_effect=SimpleVar), \
+                patch("purchase_tagger_app.ctk.CTkFrame", side_effect=FakeCtkFrame), \
+                patch("purchase_tagger_app.ctk.CTkTabview", side_effect=FakeCtkTabview), \
+                patch("purchase_tagger_app.ctk.CTkEntry", side_effect=FakeWidget) as entry, \
+                patch("purchase_tagger_app.ctk.CTkOptionMenu", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkComboBox", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget):
+            app._build_tags_view()
+
+        category_name_entries = [
+            call
+            for call in entry.call_args_list
+            if fake_widget_descends_from(call.args[0], app.category_actions_section)
+            and call.kwargs.get("textvariable") is app.selected_category_var
+        ]
+        self.assertEqual(len(category_name_entries), 1)
+
+        app.tags_tabview.set("Categorías")
+        app.parent_category_listbox.items = ["Comida", "Sin clasificar", "Transporte"]
+        app.parent_category_listbox.selection_set(0)
+        app.on_parent_category_selected()
+        self.assertEqual(app.selected_category_var.get(), "Comida")
+
+        app.selected_category_var.set("Alimentación")
+        with patch("purchase_tagger_app.simple_input") as simple_input, \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.rename_parent_category()
+
+        self.assertEqual(app.tags["Dining"]["parent_category"], "Alimentación")
+        self.assertEqual(app.tags["Groceries"]["parent_category"], "Alimentación")
+        self.assertEqual(app.tags["Bus"]["parent_category"], "Transporte")
+        simple_input.assert_not_called()
+        save_tags.assert_called_once_with(app.tags)
+
+    def test_tags_view_uses_editable_category_dropdowns_from_existing_tags(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.workspace = FakeFrame()
+        app.tags = {
+            "Dining": {
+                "keywords": [],
+                "parent_category": "Alimentación",
+            },
+            "Groceries": {
+                "keywords": [],
+                "parent_category": "Alimentación",
+            },
+            "Car": {
+                "keywords": [],
+                "parent_category": "Transporte",
+            },
+        }
+        app._build_page_header = Mock()
+        app._panel = lambda parent, **kwargs: FakeFrame()
+        FakeCtkTabview.instances = []
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.tk.Listbox", side_effect=lambda *args, **kwargs: FakeListbox()), \
+                patch("purchase_tagger_app.tk.StringVar", side_effect=SimpleVar), \
+                patch("purchase_tagger_app.ctk.CTkFrame", side_effect=FakeCtkFrame), \
+                patch("purchase_tagger_app.ctk.CTkTabview", side_effect=FakeCtkTabview), \
+                patch("purchase_tagger_app.ctk.CTkEntry", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkOptionMenu", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkComboBox", side_effect=FakeWidget) as combo_box, \
+                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget):
+            app._build_tags_view()
+
+        combo_values = [call.kwargs["values"] for call in combo_box.call_args_list]
+        self.assertIn(["Alimentación", "Transporte"], combo_values)
+
+    def test_saving_new_category_values_refreshes_reusable_dropdowns(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 75}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.limit_var = SimpleVar("100")
+        app.parent_category_var = SimpleVar("Educación")
+        app.parent_category_menu = FakeMenu()
+
+        result = app.save_current_tag_limit()
+
+        self.assertTrue(result)
+        self.assertEqual(app.tags["Dining"]["parent_category"], "Educación")
+        self.assertNotIn("subcategory", app.tags["Dining"])
+        self.assertEqual(app.parent_category_menu.values, ["Educación"])
+
+    def test_saving_parent_category_equal_to_tag_is_rejected(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 75, "parent_category": "Alimentación"}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.limit_var = SimpleVar("100")
+        app.parent_category_var = SimpleVar("Dining")
+        app.parent_category_menu = FakeMenu()
+
+        with patch("purchase_tagger_app.messagebox.showwarning") as warning:
+            result = app.save_current_tag_limit()
+
+        self.assertFalse(result)
+        self.assertEqual(app.tags["Dining"]["parent_category"], "Alimentación")
+        self.assertEqual(app.tags["Dining"]["limit"], 75)
+        warning.assert_called_once()
+
+    def test_parent_category_options_deduplicates_sorts_and_includes_default(self):
+        tags = {
+            "Dining": {"parent_category": "Alimentación"},
+            "Groceries": {"parent_category": "Alimentación"},
+            "Travel": {"parent_category": "Transporte"},
+            "Other": {"parent_category": ""},
+        }
+
+        self.assertEqual(
+            tags_view._parent_category_options(tags),
+            ["Alimentación", "Sin clasificar", "Transporte"],
+        )
+
+    def test_add_parent_category_assigns_new_category_to_selected_tag(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 75, "parent_category": "Alimentación"}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.parent_category_listbox = FakeListbox()
+        app.parent_category_menu = FakeMenu()
+        app.parent_category_var = SimpleVar("Alimentación")
+        app.selected_category_var = SimpleVar("Selecciona una categoría")
+        app.selected_category_label = FakeWidget(textvariable=app.selected_category_var, state="disabled")
+        app.limit_var = SimpleVar("75")
+        app.status_var = SimpleVar("")
+        app._refresh_tag_filter_options = Mock()
+
+        with patch("purchase_tagger_app.simple_input", return_value="Educación"), \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.add_parent_category()
+
+        self.assertEqual(app.tags["Dining"]["parent_category"], "Educación")
+        self.assertEqual(app.parent_category_var.get(), "Educación")
+        self.assertEqual(app.parent_category_listbox.items, ["Educación", "Sin clasificar"])
+        self.assertEqual(app.parent_category_listbox.curselection(), (0,))
+        self.assertEqual(app.selected_category_var.get(), "Educación")
+        self.assertEqual(app.selected_category_label.state, "normal")
+        self.assertEqual(app.parent_category_menu.values, ["Educación"])
+        save_tags.assert_called_once_with(app.tags)
+        app._refresh_tag_filter_options.assert_called_once()
+        self.assertEqual(app.status_var.get(), 'Se agregó la categoría "Educación"')
+
+    def test_rename_parent_category_updates_all_associated_tags(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {
+            "Dining": {"keywords": [], "limit": 75, "parent_category": "Comida"},
+            "Groceries": {"keywords": [], "limit": 50, "parent_category": "Comida"},
+            "Bus": {"keywords": [], "limit": 10, "parent_category": "Transporte"},
+        }
+        app.parent_category_listbox = FakeListbox()
+        app.parent_category_listbox.items = ["Comida", "Sin clasificar", "Transporte"]
+        app.parent_category_listbox.selection_set(0)
+        app.parent_category_menu = FakeMenu()
+        app.parent_category_var = SimpleVar("Comida")
+        app.limit_var = SimpleVar("0")
+        app.status_var = SimpleVar("")
+        app._refresh_tag_filter_options = Mock()
+
+        with patch("purchase_tagger_app.simple_input", return_value="Alimentación"), \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.rename_parent_category()
+
+        self.assertEqual(app.tags["Dining"]["parent_category"], "Alimentación")
+        self.assertEqual(app.tags["Groceries"]["parent_category"], "Alimentación")
+        self.assertEqual(app.tags["Bus"]["parent_category"], "Transporte")
+        self.assertEqual(app.parent_category_listbox.items, ["Alimentación", "Sin clasificar", "Transporte"])
+        save_tags.assert_called_once_with(app.tags)
+        app._refresh_tag_filter_options.assert_called_once()
+        self.assertEqual(app.status_var.get(), 'Se renombró la categoría "Comida" a "Alimentación"')
+
+    def test_rename_parent_category_rejects_default_and_duplicates(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {
+            "Dining": {"keywords": [], "limit": 75, "parent_category": "Sin clasificar"},
+            "Bus": {"keywords": [], "limit": 10, "parent_category": "Transporte"},
+        }
+        app.parent_category_listbox = FakeListbox()
+        app.parent_category_listbox.items = ["Sin clasificar", "Transporte"]
+        app.parent_category_listbox.selection_set(0)
+        app.limit_var = SimpleVar("0")
+
+        with patch("purchase_tagger_app.simple_input") as simple_input, \
+                patch("purchase_tagger_app.messagebox.showwarning") as warning, \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.rename_parent_category()
+
+        simple_input.assert_not_called()
+        warning.assert_called_once()
+        save_tags.assert_not_called()
+
+        app.parent_category_listbox.selection_set(1)
+        with patch("purchase_tagger_app.simple_input", return_value="Sin clasificar"), \
+                patch("purchase_tagger_app.messagebox.showwarning") as warning, \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.rename_parent_category()
+
+        warning.assert_called_once()
+        save_tags.assert_not_called()
+
+    def test_remove_parent_category_blocks_default(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 75, "parent_category": "Sin clasificar"}}
+        app.parent_category_listbox = FakeListbox()
+        app.parent_category_listbox.items = ["Sin clasificar"]
+        app.parent_category_listbox.selection_set(0)
+        app.limit_var = SimpleVar("0")
+
+        with patch("purchase_tagger_app.messagebox.showwarning") as warning, \
+                patch("purchase_tagger_app.messagebox.askyesno") as askyesno, \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.remove_parent_category()
+
+        warning.assert_called_once()
+        askyesno.assert_not_called()
+        save_tags.assert_not_called()
+
+    def test_remove_parent_category_in_use_confirms_and_cancel_preserves_tags(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {
+            "Dining": {"keywords": [], "limit": 75, "parent_category": "Comida"},
+            "Groceries": {"keywords": [], "limit": 50, "parent_category": "Comida"},
+        }
+        app.parent_category_listbox = FakeListbox()
+        app.parent_category_listbox.items = ["Comida", "Sin clasificar"]
+        app.parent_category_listbox.selection_set(0)
+        app.limit_var = SimpleVar("0")
+
+        with patch("purchase_tagger_app.messagebox.askyesno", return_value=False) as askyesno, \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.remove_parent_category()
+
+        askyesno.assert_called_once_with(
+            "Confirmar",
+            'La categoría "Comida" está en uso por 2 etiquetas. '
+            "Si continúas, quedarán en Sin clasificar. ¿Deseas continuar?",
+        )
+        self.assertEqual(app.tags["Dining"]["parent_category"], "Comida")
+        self.assertEqual(app.tags["Groceries"]["parent_category"], "Comida")
+        save_tags.assert_not_called()
+
+    def test_remove_parent_category_in_use_reassigns_tags_to_unclassified(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {
+            "Dining": {"keywords": [], "limit": 75, "parent_category": "Comida"},
+            "Groceries": {"keywords": [], "limit": 50, "parent_category": "Comida"},
+            "Bus": {"keywords": [], "limit": 10, "parent_category": "Transporte"},
+        }
+        app.parent_category_listbox = FakeListbox()
+        app.parent_category_listbox.items = ["Comida", "Sin clasificar", "Transporte"]
+        app.parent_category_listbox.selection_set(0)
+        app.parent_category_menu = FakeMenu()
+        app.parent_category_var = SimpleVar("Comida")
+        app.limit_var = SimpleVar("0")
+        app.status_var = SimpleVar("")
+        app._refresh_tag_filter_options = Mock()
+
+        with patch("purchase_tagger_app.messagebox.askyesno", return_value=True) as askyesno, \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.remove_parent_category()
+
+        askyesno.assert_called_once()
+        self.assertEqual(app.tags["Dining"]["parent_category"], "Sin clasificar")
+        self.assertEqual(app.tags["Groceries"]["parent_category"], "Sin clasificar")
+        self.assertEqual(app.tags["Bus"]["parent_category"], "Transporte")
+        self.assertEqual(app.parent_category_var.get(), "Sin clasificar")
+        self.assertEqual(app.parent_category_listbox.items, ["Sin clasificar", "Transporte"])
+        save_tags.assert_called_once_with(app.tags)
+        app._refresh_tag_filter_options.assert_called_once()
+        self.assertEqual(app.status_var.get(), 'Se eliminó la categoría "Comida"')
+
+    def test_parent_category_actions_stop_when_current_tag_limit_is_invalid(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": [], "limit": 75, "parent_category": "Comida"}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.parent_category_listbox = FakeListbox()
+        app.parent_category_listbox.items = ["Comida", "Sin clasificar"]
+        app.parent_category_listbox.selection_set(0)
+        app.limit_var = SimpleVar("bad limit")
+
+        with patch("purchase_tagger_app.simple_input") as simple_input, \
+                patch("purchase_tagger_app.messagebox.showwarning") as warning, \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.add_parent_category()
+            app.rename_parent_category()
+            app.remove_parent_category()
+
+        simple_input.assert_not_called()
+        self.assertEqual(warning.call_count, 3)
+        save_tags.assert_not_called()
 
     def test_refresh_tag_lists_sorts_tags_and_clears_details(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -1048,6 +1611,23 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.keyword_listbox.items, [])
         self.assertEqual(app.limit_var.get(), "")
 
+    def test_refresh_tag_lists_disables_tag_details_until_a_tag_is_selected(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["cafe"], "limit": 50}}
+        app.tag_listbox = FakeListbox()
+        app.keyword_listbox = FakeListbox()
+        app.keyword_listbox.items = ["old"]
+        app.limit_var = SimpleVar("123")
+        app.current_tag_name = "Dining"
+        widgets = attach_tag_detail_widgets(app)
+
+        app.refresh_tag_lists()
+
+        self.assertIsNone(app.current_tag_name)
+        self.assertEqual(app.keyword_listbox.items, [])
+        self.assertEqual(app.limit_var.get(), "")
+        self.assertTrue(all(widget.state == "disabled" for widget in widgets))
+
     def test_load_tag_details_populates_keywords_and_limit(self):
         app = object.__new__(PurchaseTaggerUI)
         app.tags = {"Dining": {"keywords": ["cafe", "lunch"], "limit": 75}}
@@ -1061,6 +1641,77 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         self.assertEqual(app.keyword_listbox.items, ["cafe", "lunch"])
         self.assertEqual(app.limit_var.get(), "75")
+
+    def test_load_tag_details_enables_details_and_clears_parent_category_selection(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["cafe"], "limit": 75, "parent_category": "Comida"}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.parent_category_listbox = FakeListbox()
+        app.parent_category_listbox.items = ["Comida", "Sin clasificar"]
+        app.parent_category_listbox.selection_set(0)
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("")
+        widgets = attach_tag_detail_widgets(app)
+        for widget in widgets:
+            widget.configure(state="disabled")
+
+        app.load_tag_details()
+
+        self.assertEqual(app.current_tag_name, "Dining")
+        self.assertEqual(app.parent_category_listbox.curselection(), ())
+        self.assertTrue(all(widget.state == "normal" for widget in widgets))
+
+    def test_selecting_parent_category_deselects_tag_and_disables_details(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["cafe"], "limit": 75, "parent_category": "Comida"}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.parent_category_listbox = FakeListbox()
+        app.parent_category_listbox.items = ["Comida", "Sin clasificar"]
+        app.parent_category_listbox.selection_set(0)
+        app.keyword_listbox = FakeListbox()
+        app.keyword_listbox.items = ["cafe"]
+        app.limit_var = SimpleVar("91.5")
+        app.current_tag_name = "Dining"
+        widgets = attach_tag_detail_widgets(app)
+
+        app.on_parent_category_selected()
+
+        self.assertEqual(app.tags["Dining"]["limit"], Decimal("91.5"))
+        self.assertEqual(app.tag_listbox.curselection(), ())
+        self.assertIsNone(app.current_tag_name)
+        self.assertEqual(app.keyword_listbox.items, [])
+        self.assertEqual(app.limit_var.get(), "")
+        self.assertTrue(all(widget.state == "disabled" for widget in widgets))
+
+    def test_selecting_parent_category_keeps_tag_selected_when_current_edit_is_invalid(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["cafe"], "limit": 75, "parent_category": "Comida"}}
+        app.tag_listbox = FakeListbox()
+        app.tag_listbox.items = ["Dining"]
+        app.tag_listbox.selection_set(0)
+        app.parent_category_listbox = FakeListbox()
+        app.parent_category_listbox.items = ["Comida", "Sin clasificar"]
+        app.parent_category_listbox.selection_set(0)
+        app.keyword_listbox = FakeListbox()
+        app.keyword_listbox.items = ["cafe"]
+        app.limit_var = SimpleVar("bad limit")
+        app.current_tag_name = "Dining"
+        widgets = attach_tag_detail_widgets(app)
+
+        with patch("purchase_tagger_app.messagebox.showwarning") as warning:
+            app.on_parent_category_selected()
+
+        self.assertEqual(app.tags["Dining"]["limit"], 75)
+        self.assertEqual(app.tag_listbox.curselection(), (0,))
+        self.assertEqual(app.current_tag_name, "Dining")
+        self.assertEqual(app.keyword_listbox.items, ["cafe"])
+        self.assertEqual(app.limit_var.get(), "bad limit")
+        self.assertTrue(all(widget.state == "normal" for widget in widgets))
+        warning.assert_called_once()
 
     def test_switching_tags_saves_previous_valid_decimal_limit(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -1149,14 +1800,25 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
                     patch("purchase_tagger_app.messagebox.showinfo") as showinfo:
                 app.export_tags_json()
 
-            self.assertEqual(save_dialog.call_args.kwargs["initialfile"], "tag_list.json")
+            self.assertEqual(save_dialog.call_args.kwargs["initialfile"], "etiquetas.json")
             with open(path, encoding="utf-8") as exported:
                 self.assertEqual(
                     json.load(exported),
-                    {"tag_name": {"keywords": ["KEYWORD"], "limit": 10.5}},
+                    {
+                        "tag_name": {
+                            "keywords": ["KEYWORD"],
+                        "limit": 10.5,
+                        "budget_type": "Expense",
+                        "parent_category": "Sin clasificar",
+                        "budget_period": "monthly",
+                        "planned_amount": 10.5,
+                        "expense_nature": None,
+                            "financial_purpose": None,
+                        }
+                    },
                 )
             showinfo.assert_called_once()
-            self.assertEqual(app.status_var.get(), f"Exported tags to {path}")
+            self.assertEqual(app.status_var.get(), f"Etiquetas exportadas a {path}")
         finally:
             os.remove(path)
 
@@ -1185,21 +1847,26 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
                     patch("purchase_tagger_app.messagebox.showinfo") as showinfo:
                 app.import_tags_json()
 
-            self.assertEqual(
-                app.tags,
-                {
-                    "Dining": {"keywords": ["CAFE", "LUNCH"], "limit": 2500},
-                    "tag_name": {"keywords": ["KEYWORD"], "limit": 0},
-                },
-            )
+            self.assertEqual(app.tags["Dining"]["keywords"], ["CAFE", "LUNCH"])
+            self.assertEqual(app.tags["Dining"]["planned_amount"], 2500)
+            self.assertEqual(app.tags["tag_name"]["keywords"], ["KEYWORD"])
+            self.assertEqual(app.tags["tag_name"]["parent_category"], "Sin clasificar")
+            self.assertNotIn("subcategory", app.tags["tag_name"])
             self.assertEqual(app.tag_listbox.items, ["Dining", "tag_name"])
             save_tags.assert_called_once_with(app.tags)
             app._refresh_tag_filter_options.assert_called_once()
             showinfo.assert_called_once_with(
-                "Imported",
-                "Imported tags from JSON.\nTags added: 1\nKeywords added: 2\nLimits updated: 1",
+                "Importado",
+                "Etiquetas importadas desde JSON.\n"
+                "Etiquetas agregadas: 1\n"
+                "Palabras clave agregadas: 2\n"
+                "Montos actualizados: 1\n"
+                "Datos actualizados: 0",
             )
-            self.assertEqual(app.status_var.get(), "Imported 1 tag, 2 keywords, and updated 1 limit")
+            self.assertEqual(
+                app.status_var.get(),
+                "Se importaron 1 etiqueta, 2 palabras clave, se actualizaron 1 monto y 0 datos",
+            )
         finally:
             os.remove(path)
 
@@ -1232,7 +1899,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             self.assertEqual(app.tags, {"Dining": {"keywords": ["CAFE"], "limit": 1000}})
             save_tags.assert_not_called()
             showerror.assert_called_once()
-            self.assertEqual(app.status_var.get(), "Import failed")
+            self.assertEqual(app.status_var.get(), "No se pudo importar")
         finally:
             os.remove(path)
 
@@ -1260,7 +1927,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             app.refresh_tag_lists.assert_not_called()
             app._refresh_tag_filter_options.assert_not_called()
             showerror.assert_called_once()
-            self.assertEqual(app.status_var.get(), "Import failed")
+            self.assertEqual(app.status_var.get(), "No se pudo importar")
         finally:
             os.remove(path)
 
@@ -1276,7 +1943,10 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
                 patch("purchase_tagger_app.save_tags") as save_tags:
             app.add_tag()
 
-        self.assertEqual(app.tags, {"Dining": {"keywords": [], "limit": 0}})
+        self.assertEqual(app.tags["Dining"]["keywords"], [])
+        self.assertEqual(app.tags["Dining"]["planned_amount"], 0)
+        self.assertEqual(app.tags["Dining"]["parent_category"], "Sin clasificar")
+        self.assertEqual(app.tags["Dining"]["budget_period"], "monthly")
         self.assertEqual(app.tag_listbox.items, ["Dining"])
         save_tags.assert_called_once_with(app.tags)
 
@@ -1285,7 +1955,9 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
                 patch("purchase_tagger_app.save_tags") as save_tags:
             app.edit_tag()
 
-        self.assertEqual(app.tags, {"Food": {"keywords": [], "limit": 0}})
+        self.assertEqual(list(app.tags), ["Food"])
+        self.assertEqual(app.tags["Food"]["keywords"], [])
+        self.assertEqual(app.tags["Food"]["planned_amount"], 0)
         self.assertEqual(app.tag_listbox.items, ["Food"])
         save_tags.assert_called_once_with(app.tags)
 
@@ -1306,6 +1978,9 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.tag_listbox.selection_set(0)
         app.keyword_listbox = FakeListbox()
         app.limit_var = SimpleVar("91.5")
+        app.tag_name_var = SimpleVar("Dining")
+        app.tag_name_entry = FakeWidget(textvariable=app.tag_name_var, state="disabled")
+        app.tag_detail_widgets = [app.tag_name_entry]
         app.status_var = SimpleVar("")
         app.current_tag_name = "Dining"
 
@@ -1314,7 +1989,13 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             app.add_tag()
 
         self.assertEqual(app.tags["Dining"]["limit"], Decimal("91.5"))
-        self.assertEqual(app.tags["Travel"], {"keywords": [], "limit": 0})
+        self.assertEqual(app.tags["Dining"]["planned_amount"], Decimal("91.5"))
+        self.assertEqual(app.tags["Travel"]["keywords"], [])
+        self.assertEqual(app.tags["Travel"]["planned_amount"], 0)
+        self.assertEqual(app.tags["Travel"]["parent_category"], "Sin clasificar")
+        self.assertEqual(app.tag_listbox.curselection(), (1,))
+        self.assertEqual(app.tag_name_var.get(), "Travel")
+        self.assertEqual(app.tag_name_entry.state, "normal")
 
     def test_edit_tag_carries_current_limit_edit_to_renamed_tag(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -1373,7 +2054,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.tree.items["item-a"] = rows[0]
         app.tree.items["item-b"] = rows[1]
         app.search_var = SimpleVar("")
-        app.currency_var = SimpleVar("All currencies")
+        app.currency_var = SimpleVar("Todas las monedas")
         app.month_var = SimpleVar("Todos")
         app.tag_filter_var = SimpleVar("Dining")
         app.total_var = SimpleVar("")
@@ -1404,7 +2085,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.tag_filter_var.get(), "Todos")
         self.assertEqual(app.filtered_rows, rows)
         self.assertEqual(app.kpi_vars["untagged_rows"].get(), "1")
-        self.assertEqual(app.status_var.get(), 'Removed tag "Dining"')
+        self.assertEqual(app.status_var.get(), 'Se eliminó la etiqueta "Dining"')
 
     def test_tag_workspace_add_edit_remove_keyword(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -1449,14 +2130,14 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.summary_frame = FakeFrame([FakeWidget()])
         app.summary_currency_vars = {}
         app.summary_month_var = SimpleVar("Todos")
-        app.summary_choice_var = SimpleVar("Spend by Tag")
+        app.summary_choice_var = SimpleVar("Gasto por etiqueta")
 
         with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
                 patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget) as label:
             app.draw_summary()
 
         self.assertTrue(app.summary_frame.winfo_children()[0].destroyed)
-        self.assertEqual(label.call_args.kwargs["text"], "Load purchases to see summaries.")
+        self.assertEqual(label.call_args.kwargs["text"], "Carga compras para ver resúmenes.")
 
     def test_draw_summary_uses_all_rows_independent_of_purchase_filter(self):
         all_rows = [
@@ -1472,7 +2153,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             "CRC": SimpleVar(False),
         }
         app.summary_month_var = SimpleVar("Todos")
-        app.summary_choice_var = SimpleVar("Spend by Tag")
+        app.summary_choice_var = SimpleVar("Gasto por etiqueta")
         app.tags = {}
         with patch("purchase_tagger_app.filter_rows_by_month", side_effect=lambda rows, month: list(rows)) as month_filter, \
                 patch("purchase_tagger_app.summary_aggregates", return_value={
@@ -1500,7 +2181,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             "CRC": SimpleVar(False),
         }
         app.summary_month_var = SimpleVar("2025-01")
-        app.summary_choice_var = SimpleVar("Spend by Tag")
+        app.summary_choice_var = SimpleVar("Gasto por etiqueta")
         app.tags = {"Dining": {"limit": 100}}
         calls = []
         app._render_summary_insights = lambda rows, selected, month: calls.append((rows, selected, month))
@@ -1521,9 +2202,9 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app = object.__new__(PurchaseTaggerUI)
         ax = FakeAxes()
 
-        app._style_summary_axes(ax, "Monthly Spend", ylabel="Total")
+        app._style_summary_axes(ax, "Gasto mensual", ylabel="Total")
 
-        self.assertEqual(ax.title, "Monthly Spend")
+        self.assertEqual(ax.title, "Gasto mensual")
         self.assertEqual(ax.title_kwargs["loc"], "left")
         self.assertEqual(ax.ylabel, "Total")
         self.assertEqual(ax.ylabel_kwargs["color"], "#4b5563")
@@ -1560,16 +2241,16 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             "top_tags": [("Dining", Decimal("80.00"))],
             "over_limit_tags": [("Dining", Decimal("80.00"), Decimal("50.00"))],
             "largest_purchases": [["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"]],
-            "headline": "Dining is over its limit by USD 30.00.",
-            "detail": "- Dining accounts for 100.0% of spend.\n- Total spend is USD 80.00 across 1 purchase.",
+            "headline": "Dining supera su presupuesto por USD 30.00.",
+            "detail": "- Dining representa el 100.0% del gasto.\n- El gasto total es USD 80.00 en 1 compra.",
             "messages": [],
         }):
             app._render_summary_insights([["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"]], {"USD"}, "Todos")
 
-        self.assertEqual(app.summary_headline_var.get(), "Dining is over its limit by USD 30.00.")
+        self.assertEqual(app.summary_headline_var.get(), "Dining supera su presupuesto por USD 30.00.")
         self.assertEqual(
             app.summary_messages_var.get(),
-            "- Dining accounts for 100.0% of spend.\n- Total spend is USD 80.00 across 1 purchase.",
+            "- Dining representa el 100.0% del gasto.\n- El gasto total es USD 80.00 en 1 compra.",
         )
 
     def test_summary_insights_panel_uses_highlighted_left_aligned_callout(self):
@@ -1615,7 +2296,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             "CRC": SimpleVar(True),
         }
         app.summary_month_var = SimpleVar("Todos")
-        app.summary_choice_var = SimpleVar("Spend by Tag")
+        app.summary_choice_var = SimpleVar("Gasto por etiqueta")
         calls = []
         app._render_summary_insights = lambda rows, selected, month: calls.append((rows, selected, month))
 
@@ -1624,7 +2305,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
                 patch("purchase_tagger_app.summary_aggregates") as aggregates:
             app.draw_summary()
 
-        self.assertEqual(label.call_args.kwargs["text"], "Select one currency for summaries to avoid mixing currencies.")
+        self.assertEqual(label.call_args.kwargs["text"], "Selecciona una sola moneda para no mezclar monedas.")
         self.assertEqual(calls, [(app.all_rows, {"CRC", "USD"}, "Todos")])
         aggregates.assert_not_called()
 
@@ -1634,7 +2315,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.summary_frame = FakeFrame()
         app.summary_currency_vars = {"USD": SimpleVar(True)}
         app.summary_month_var = SimpleVar("Todos")
-        app.summary_choice_var = SimpleVar("Límite vs Gasto por Tag")
+        app.summary_choice_var = SimpleVar("Presupuesto vs gasto por etiqueta")
         app.tags = {"Dining": {"limit": 50}}
         ax = FakeAxes()
 
@@ -1659,7 +2340,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.summary_frame = FakeFrame()
         app.summary_currency_vars = {"USD": SimpleVar(True)}
         app.summary_month_var = SimpleVar("Todos")
-        app.summary_choice_var = SimpleVar("Spend by Tag")
+        app.summary_choice_var = SimpleVar("Gasto por etiqueta")
         app.tags = {}
         app._render_summary_insights = lambda rows, selected, month: None
         ax = FakeAxes()
@@ -1700,7 +2381,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             with open(path, newline="", encoding="utf-8") as exported:
                 rows = [line.strip() for line in exported.readlines()]
 
-            self.assertEqual(rows[0], "date,description,sign,amount,currency,tag")
+            self.assertEqual(rows[0], "fecha,descripcion,signo,monto,moneda,etiqueta")
             self.assertEqual(rows[1], "01-ENE-25,CAFE,-,10.00,USD,Dining")
             showinfo.assert_called_once()
         finally:

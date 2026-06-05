@@ -3,7 +3,7 @@ import os
 from collections import Counter
 
 from money import ZERO, format_amount, parse_amount
-from summary import currency_totals, filter_rows_by_month, filter_rows_by_text
+from summary import currency_totals, filter_rows_by_month, filter_rows_by_text, purchase_spend_amount
 
 
 ALL_MONTHS = "Todos"
@@ -35,14 +35,19 @@ def kpi_stats(all_rows, filtered_rows, tags, natag="N/A"):
             continue
         tag = row[4]
         try:
-            amount = parse_amount(row[2])
+            if len(row) > 5 and row[5] == "+":
+                continue
+            amount = purchase_spend_amount(row[2])
+            if amount is None:
+                amount = parse_amount(row[2])
         except (ValueError, AttributeError):
             continue
         totals_by_tag[tag] += amount
 
     over_limit_tags = 0
     for tag, total in totals_by_tag.items():
-        limit = parse_amount(tags.get(tag, {}).get("limit", ZERO))
+        tag_info = tags.get(tag, {})
+        limit = parse_amount(tag_info.get("planned_amount", tag_info.get("limit", ZERO)))
         if limit and total > limit:
             over_limit_tags += 1
 
@@ -58,14 +63,14 @@ def kpi_stats(all_rows, filtered_rows, tags, natag="N/A"):
 def format_totals(rows):
     totals = currency_totals(rows)
     if not totals:
-        return "Totals: 0.00"
+        return "Totales: 0.00"
     parts = [f"{currency} {format_amount(amount)}" for currency, amount in sorted(totals.items())]
-    return f"Totals: {'; '.join(parts)}"
+    return f"Totales: {'; '.join(parts)}"
 
 
 def build_file_label(pdf_files):
     if not pdf_files:
-        return "No PDFs selected"
+        return "No hay PDFs seleccionados"
     if len(pdf_files) == 1:
         return os.path.basename(pdf_files[0])
-    return f"{len(pdf_files)} PDFs selected"
+    return f"{len(pdf_files)} PDFs seleccionados"

@@ -77,8 +77,8 @@ def test_kpi_stats_uses_decimal_math_for_limit_comparisons():
 
 
 def test_format_totals_outputs_sorted_currency_totals():
-    assert format_totals(ROWS) == "Totals: CRC 42,300.00; USD 28.65"
-    assert format_totals([]) == "Totals: 0.00"
+    assert format_totals(ROWS) == "Totales: CRC 42,300.00; USD 28.65"
+    assert format_totals([]) == "Totales: 0.00"
 
 
 def test_format_totals_uses_decimal_math_for_cents():
@@ -87,7 +87,7 @@ def test_format_totals_uses_decimal_math_for_cents():
         ["02-MAY-26", "SMALL CHARGE", "0.20", "USD", "Misc"],
     ]
 
-    assert format_totals(rows) == "Totals: USD 0.30"
+    assert format_totals(rows) == "Totales: USD 0.30"
 
 
 def test_format_totals_nets_positive_and_negative_signed_rows():
@@ -96,10 +96,10 @@ def test_format_totals_nets_positive_and_negative_signed_rows():
         ["02-MAY-26", "CAFE", "10.00", "USD", "Dining", "+"],
     ]
 
-    assert format_totals(rows) == "Totals: USD -15.00"
+    assert format_totals(rows) == "Totales: USD -15.00"
 
 
 def test_build_file_label_handles_empty_single_and_multiple_files():
-    assert build_file_label([]) == "No PDFs selected"
+    assert build_file_label([]) == "No hay PDFs seleccionados"
     assert build_file_label([os.path.join("tmp", "statement.pdf")]) == "statement.pdf"
-    assert build_file_label([os.path.join("tmp", "a.pdf"), os.path.join("tmp", "b.pdf")]) == "2 PDFs selected"
+    assert build_file_label([os.path.join("tmp", "a.pdf"), os.path.join("tmp", "b.pdf")]) == "2 PDFs seleccionados"

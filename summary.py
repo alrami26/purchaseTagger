@@ -181,6 +181,36 @@ def average_spend_by_tag_month(rows, selected_currencies, limits):
     }
 
 
+def budget_metadata_aggregates(rows, selected_currencies, tags):
+    selected_currency = _single_selected_currency(selected_currencies)
+    groups = {
+        "by_budget_type": defaultdict(lambda: ZERO),
+        "by_parent_category": defaultdict(lambda: ZERO),
+        "by_financial_purpose": defaultdict(lambda: ZERO),
+    }
+
+    for row in rows:
+        try:
+            _date_str, _desc, amount, currency, tag = row[:5]
+        except (TypeError, ValueError):
+            continue
+        if currency != selected_currency:
+            continue
+        try:
+            amount_value = purchase_spend_amount(amount)
+        except (TypeError, ValueError):
+            continue
+        if amount_value is None:
+            continue
+
+        tag_info = tags.get(tag, {})
+        groups["by_budget_type"][_metadata_label(tag_info, "budget_type")] += amount_value
+        groups["by_parent_category"][_metadata_label(tag_info, "parent_category")] += amount_value
+        groups["by_financial_purpose"][_metadata_label(tag_info, "financial_purpose")] += amount_value
+
+    return {name: dict(values) for name, values in groups.items()}
+
+
 def summary_insights(rows, selected_currencies, limits, month_key='Todos', natag='N/A', top_n=3):
     selected_currency = _single_selected_currency(selected_currencies)
     parsed_limits = _parse_limits(limits)
@@ -242,6 +272,13 @@ def _single_selected_currency(selected_currencies):
     if len(currencies) != 1:
         raise ValueError("summary calculations require exactly one selected currency")
     return currencies[0]
+
+
+def _metadata_label(tag_info, field):
+    value = tag_info.get(field)
+    if not value:
+        return "Sin clasificar"
+    return value
 
 
 def _parse_limits(limits):
@@ -340,26 +377,27 @@ def _previous_month_key(month_key):
 
 
 def _insight_messages(total_spend, purchase_count, top_tags, over_limit_tags, comparison, natag):
-    messages = [f"Total spend is {format_insight_amount(total_spend)} across {purchase_count} purchases."]
+    purchase_label = "compra" if purchase_count == 1 else "compras"
+    messages = [f"El gasto total es {format_insight_amount(total_spend)} en {purchase_count} {purchase_label}."]
     if top_tags:
         tag, amount = top_tags[0]
         if tag != natag:
-            messages.append(f"{tag} is the top spending tag at {format_insight_amount(amount)}.")
+            messages.append(f"{tag} es la etiqueta con mayor gasto: {format_insight_amount(amount)}.")
     for tag, total, limit in over_limit_tags[:2]:
-        messages.append(f"{tag} is {format_insight_amount(total - limit)} over its limit.")
+        messages.append(f"{tag} supera su presupuesto por {format_insight_amount(total - limit)}.")
     if comparison:
         delta = comparison["delta"]
         if delta > ZERO:
-            direction = "more than"
+            direction = "más que"
             amount = delta
         elif delta < ZERO:
-            direction = "less than"
+            direction = "menos que"
             amount = -delta
         else:
-            direction = "the same as"
+            direction = "igual que"
             amount = ZERO
         messages.append(
-            f"{comparison['current_month']} spend is {format_insight_amount(amount)} "
+            f"El gasto de {comparison['current_month']} es {format_insight_amount(amount)} "
             f"{direction} {comparison['previous_month']}."
         )
     return messages[:4]
@@ -368,11 +406,11 @@ def _insight_messages(total_spend, purchase_count, top_tags, over_limit_tags, co
 def _insight_headline(top_tags, over_limit_tags, currency):
     if over_limit_tags:
         tag, total, limit = over_limit_tags[0]
-        return f"{tag} is over its limit by {currency} {format_insight_amount(total - limit)}."
+        return f"{tag} supera su presupuesto por {currency} {format_insight_amount(total - limit)}."
     if top_tags:
         tag, _amount = top_tags[0]
-        return f"{tag} is driving this period's spend."
-    return "No major spending insight for this selection."
+        return f"{tag} concentra el gasto de este periodo."
+    return "No hay hallazgos principales para esta selección."
 
 
 def _insight_detail(total_spend, purchase_count, top_tags, over_limit_tags, currency):
@@ -380,13 +418,13 @@ def _insight_detail(total_spend, purchase_count, top_tags, over_limit_tags, curr
     if top_tags and total_spend:
         tag, amount = top_tags[0]
         percent = ((amount / total_spend) * Decimal("100")).quantize(Decimal("0.1"), ROUND_HALF_UP)
-        details.append(f"{tag} accounts for {percent}% of spend.")
+        details.append(f"{tag} representa el {percent}% del gasto.")
     if len(over_limit_tags) > 1:
         tag, total, limit = over_limit_tags[1]
-        details.append(f"{tag} is also over by {currency} {format_insight_amount(total - limit)}.")
-    purchase_label = "purchase" if purchase_count == 1 else "purchases"
+        details.append(f"{tag} también supera el presupuesto por {currency} {format_insight_amount(total - limit)}.")
+    purchase_label = "compra" if purchase_count == 1 else "compras"
     details.append(
-        f"Total spend is {currency} {format_insight_amount(total_spend)} across {purchase_count} {purchase_label}."
+        f"El gasto total es {currency} {format_insight_amount(total_spend)} en {purchase_count} {purchase_label}."
     )
     return "\n".join(f"- {detail}" for detail in details)
 

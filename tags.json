@@ -16,7 +16,13 @@
       "Peri",
       "Surtimas"
     ],
-    "limit": 80841
+    "limit": 80841,
+    "budget_type": "Expense",
+    "parent_category": "Sin clasificar",
+    "budget_period": "monthly",
+    "planned_amount": 80841,
+    "expense_nature": null,
+    "financial_purpose": null
   },
   "Salidas": {
     "keywords": [
@@ -67,13 +73,25 @@
       "OTRAS TARJETAS CITY MAALA JUELA_ CRI",
       "KALDI MON TES DE OC_CRI"
     ],
-    "limit": 78590
+    "limit": 78590,
+    "budget_type": "Expense",
+    "parent_category": "Sin clasificar",
+    "budget_period": "monthly",
+    "planned_amount": 78590,
+    "expense_nature": null,
+    "financial_purpose": null
   },
   "Carne": {
     "keywords": [
       "CARNICERIA"
     ],
-    "limit": 42987.5
+    "limit": 42987.5,
+    "budget_type": "Expense",
+    "parent_category": "Alimentacion",
+    "budget_period": "monthly",
+    "planned_amount": 42987.5,
+    "expense_nature": "fixed",
+    "financial_purpose": "Necesidad"
   },
   "Casa": {
     "keywords": [
@@ -88,26 +106,50 @@
       "PEQUENO MUNDO ZAPOTE",
       "DICA DESAROLLOS"
     ],
-    "limit": 25000
+    "limit": 25000,
+    "budget_type": "Expense",
+    "parent_category": "Mantenimiento",
+    "budget_period": "monthly",
+    "planned_amount": 25000,
+    "expense_nature": null,
+    "financial_purpose": "Necesidad"
   },
   "Celular": {
     "keywords": [
       "I.C.E.",
       "LABORATORIO PHONE"
     ],
-    "limit": 10000
+    "limit": 10000,
+    "budget_type": "Expense",
+    "parent_category": "Personal",
+    "budget_period": "monthly",
+    "planned_amount": 10000,
+    "expense_nature": "fixed",
+    "financial_purpose": "Necesidad"
   },
   "Cable": {
     "keywords": [
       "LIBERTY"
     ],
-    "limit": 36000
+    "limit": 36000,
+    "budget_type": "Expense",
+    "parent_category": "Mantenimiento",
+    "budget_period": "monthly",
+    "planned_amount": 36000,
+    "expense_nature": "fixed",
+    "financial_purpose": "Necesidad"
   },
   "Concierto": {
     "keywords": [
       "E-TICKET"
     ],
-    "limit": 25000
+    "limit": 25000,
+    "budget_type": "Expense",
+    "parent_category": "Entretenimiento",
+    "budget_period": "monthly",
+    "planned_amount": 25000,
+    "expense_nature": "variable",
+    "financial_purpose": "Deseo"
   },
   "Salud": {
     "keywords": [
@@ -122,7 +164,13 @@
       "TOTAL DERMATOLOGY CURRIDA BAT",
       "LA BOTICA PLAZA DEL SOL"
     ],
-    "limit": 35500
+    "limit": 35500,
+    "budget_type": "Expense",
+    "parent_category": "Sin clasificar",
+    "budget_period": "monthly",
+    "planned_amount": 35500,
+    "expense_nature": null,
+    "financial_purpose": null
   },
   "Carro": {
     "keywords": [
@@ -140,14 +188,27 @@
       "AUTO PARKING",
       "CERRAJERIA EDDY"
     ],
-    "limit": 15000
+    "limit": 15000,
+    "budget_type": "Expense",
+    "parent_category": "Transporte",
+    "budget_period": "monthly",
+    "planned_amount": 15000,
+    "expense_nature": "variable",
+    "financial_purpose": "Necesidad"
   },
   "Juegos": {
     "keywords": [
       "STEAM",
-      "HUMBLEBUNDLE"
+      "HUMBLEBUNDLE",
+      "RIOT GAMES"
     ],
-    "limit": 13320
+    "limit": 13320,
+    "budget_type": "Expense",
+    "parent_category": "Entretenimiento",
+    "budget_period": "monthly",
+    "planned_amount": 13320,
+    "expense_nature": "variable",
+    "financial_purpose": "Deseo"
   },
   "Ropa": {
     "keywords": [
@@ -158,7 +219,13 @@
       "DECATHLON CURRIDABAT",
       "EPK MULTIPLAZA CURRIDACUR RIDABAT_ CRI"
     ],
-    "limit": 20000
+    "limit": 20000,
+    "budget_type": "Expense",
+    "parent_category": "Sin clasificar",
+    "budget_period": "monthly",
+    "planned_amount": 20000,
+    "expense_nature": null,
+    "financial_purpose": null
   },
   "Regalos": {
     "keywords": [
@@ -168,7 +235,13 @@
       "Universal",
       "Toys"
     ],
-    "limit": 5000
+    "limit": 5000,
+    "budget_type": "Expense",
+    "parent_category": "Sin clasificar",
+    "budget_period": "monthly",
+    "planned_amount": 5000,
+    "expense_nature": null,
+    "financial_purpose": null
   },
   "Bebe": {
     "keywords": [
@@ -180,7 +253,13 @@
       "GLOBO VIOLETA Y ZAPATICOS",
       "MY PET MON TES DE OC_CRI"
     ],
-    "limit": 300000
+    "limit": 300000,
+    "budget_type": "Expense",
+    "parent_category": "Familia",
+    "budget_period": "monthly",
+    "planned_amount": 300000,
+    "expense_nature": "variable",
+    "financial_purpose": "Necesidad"
   },
   "Mascotas": {
     "keywords": [
@@ -190,25 +269,49 @@
       "MY PET MON TES DE OC_CRI",
       "PETS MARKET S.A"
     ],
-    "limit": 25000
+    "limit": 25000,
+    "budget_type": "Expense",
+    "parent_category": "Familia",
+    "budget_period": "monthly",
+    "planned_amount": 25000,
+    "expense_nature": "variable",
+    "financial_purpose": "Necesidad"
   },
   "Amazon": {
     "keywords": [
       "Amazon",
       "AMZN"
     ],
-    "limit": 0
+    "limit": 0,
+    "budget_type": "Expense",
+    "parent_category": "Compras",
+    "budget_period": "monthly",
+    "planned_amount": 0,
+    "expense_nature": "variable",
+    "financial_purpose": "Deseo"
   },
   "Viajes": {
     "keywords": [
       "RENT SMART CAR RENTAL MIA MI _USA"
     ],
-    "limit": 0
+    "limit": 0,
+    "budget_type": "Expense",
+    "parent_category": "Sin clasificar",
+    "budget_period": "monthly",
+    "planned_amount": 0,
+    "expense_nature": null,
+    "financial_purpose": null
   },
   "Tarjeta": {
     "keywords": [
       "PAGO RECIBIDO...136"
     ],
-    "limit": 0
+    "limit": 0,
+    "budget_type": "Expense",
+    "parent_category": "Sin clasificar",
+    "budget_period": "monthly",
+    "planned_amount": 0,
+    "expense_nature": null,
+    "financial_purpose": null
   }
 }
