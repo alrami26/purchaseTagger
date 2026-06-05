@@ -1,8 +1,11 @@
 import unittest
+import json
 from decimal import Decimal
+import os
+import tempfile
 from unittest.mock import Mock, patch
 
-from purchase_tagger_app import PurchaseTaggerUI
+from purchase_tagger_app import PurchaseTaggerUI, display_purchase_row
 from views import tags as tags_view
 
 
@@ -43,8 +46,12 @@ class FakeTree:
         self.tags[tag_name] = options
 
     def set(self, item_iid, column):
-        columns = {"date": 0, "description": 1, "amount": 2, "currency": 3, "tag": 4}
-        return self.items[item_iid][columns[column]]
+        values = self.items[item_iid]
+        if len(values) > 5:
+            columns = {"date": 0, "description": 1, "sign": 2, "amount": 3, "currency": 4, "tag": 5}
+        else:
+            columns = {"date": 0, "description": 1, "amount": 2, "currency": 3, "tag": 4}
+        return values[columns[column]]
 
     def move(self, item_iid, parent, index):
         self.visible_order.remove(item_iid)
@@ -89,6 +96,14 @@ class FakeListbox:
     def __init__(self):
         self.items = []
         self.selection = []
+        self.grid_options = None
+        self.bound_events = {}
+
+    def grid(self, **kwargs):
+        self.grid_options = kwargs
+
+    def bind(self, event, callback):
+        self.bound_events[event] = callback
 
     def delete(self, first, last=None):
         if first == 0 and last == "end":
@@ -340,6 +355,8 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         app.pdf_files = list(files or [])
         app.file_label_var = SimpleVar("No PDFs selected")
         app.status_var = SimpleVar("")
+        app.bank_var = SimpleVar("BAC")
+        app.account_type_var = SimpleVar("Credito")
         app.load = Mock()
         return app
 
@@ -367,6 +384,103 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         self.assertEqual(app.file_label_var.get(), "statement.pdf")
         app.load.assert_not_called()
 
+    def test_clear_pdfs_resets_imported_state_to_startup_defaults(self):
+        app = object.__new__(PurchaseTaggerUI)
+        rows = [
+            ["01-ENE-25", "APPLE STORE", "10.00", "USD", "Shopping"],
+            ["02-FEB-25", "BANANA MARKET", "20.00", "CRC", "Groceries"],
+        ]
+        app.pdf_files = ["jan.pdf", "feb.pdf"]
+        app.all_rows = list(rows)
+        app.filtered_rows = list(rows)
+        app.tree_item_rows = {"old": rows[0]}
+        app.tree = FakeTree(["old"])
+        app.tree.items["old"] = rows[0]
+        app.file_label_var = SimpleVar("2 PDFs selected")
+        app.status_var = SimpleVar("Loaded and tagged 2 purchases")
+        app.search_var = SimpleVar("banana")
+        app.currency_var = SimpleVar("CRC")
+        app.import_currency_var = SimpleVar("USD")
+        app.month_var = SimpleVar("2025-02")
+        app.tag_filter_var = SimpleVar("Groceries")
+        app.bank_var = SimpleVar("Promerica")
+        app.account_type_var = SimpleVar("Credito")
+        app.total_var = SimpleVar("Totals: CRC 20.00")
+        app.visible_count_var = SimpleVar("Showing 2 purchases")
+        app.kpi_vars = {
+            "total_rows": SimpleVar("2"),
+            "visible_rows": SimpleVar("2"),
+            "untagged_rows": SimpleVar("0"),
+            "currency_count": SimpleVar("2"),
+            "over_limit_tags": SimpleVar("0"),
+        }
+        app.currency_menu = FakeMenu()
+        app.month_menu = FakeMenu()
+        app.tag_menu = FakeMenu()
+        app.account_type_menu = FakeMenu()
+        app.tags = {"Groceries": {"keywords": [], "limit": 0}}
+        app.natag = "N/A"
+        app.active_view = "Purchases"
+
+        app.clear_pdfs()
+
+        self.assertEqual(app.pdf_files, [])
+        self.assertEqual(app.all_rows, [])
+        self.assertEqual(app.filtered_rows, [])
+        self.assertEqual(app.tree_item_rows, {})
+        self.assertEqual(app.tree.deleted, ["old"])
+        self.assertEqual(app.file_label_var.get(), "No PDFs selected")
+        self.assertEqual(app.status_var.get(), "No PDFs selected")
+        self.assertEqual(app.search_var.get(), "")
+        self.assertEqual(app.currency_var.get(), "All currencies")
+        self.assertEqual(app.import_currency_var.get(), "")
+        self.assertEqual(app.month_var.get(), "Todos")
+        self.assertEqual(app.tag_filter_var.get(), "Todos")
+        self.assertEqual(app.bank_var.get(), "BAC")
+        self.assertEqual(app.account_type_var.get(), "Credito")
+        self.assertEqual(app.total_var.get(), "Totals: 0.00")
+        self.assertEqual(app.visible_count_var.get(), "Showing 0 purchases")
+        self.assertEqual(app.kpi_vars["total_rows"].get(), "0")
+        self.assertEqual(app.kpi_vars["visible_rows"].get(), "0")
+        self.assertEqual(app.currency_menu.values, ["All currencies"])
+        self.assertEqual(app.month_menu.values, ["Todos"])
+        self.assertEqual(app.tag_menu.values, ["Todos"])
+        self.assertEqual(app.account_type_menu.values, ["Credito", "Debito"])
+
+    def test_clear_pdfs_refreshes_visible_import_overview(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.pdf_files = ["statement.pdf"]
+        app.all_rows = [["01-ENE-25", "CAFE", "-10.00", "USD", "Dining"]]
+        app.filtered_rows = list(app.all_rows)
+        app.tree_item_rows = {}
+        app.file_label_var = SimpleVar("statement.pdf")
+        app.status_var = SimpleVar("Loaded and tagged 1 purchases")
+        app.search_var = SimpleVar("")
+        app.currency_var = SimpleVar("All currencies")
+        app.import_currency_var = SimpleVar("USD")
+        app.month_var = SimpleVar("Todos")
+        app.tag_filter_var = SimpleVar("Todos")
+        app.bank_var = SimpleVar("Promerica")
+        app.account_type_var = SimpleVar("Credito")
+        app.total_var = SimpleVar("Totals: USD 10.00")
+        app.account_type_menu = FakeMenu()
+        app.kpi_vars = {
+            "total_rows": SimpleVar("1"),
+            "visible_rows": SimpleVar("1"),
+            "untagged_rows": SimpleVar("0"),
+            "currency_count": SimpleVar("1"),
+            "over_limit_tags": SimpleVar("0"),
+        }
+        app.tags = {}
+        app.natag = "N/A"
+        app.active_view = "Imports"
+        app.apply_filter = Mock()
+        app.show_view = Mock()
+
+        app.clear_pdfs()
+
+        app.show_view.assert_called_once_with("Imports")
+
     def test_file_panel_uses_browse_and_tag_button_label(self):
         app = self.make_app()
         app.browse_pdf = Mock()
@@ -375,12 +489,44 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
 
         with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
                 patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget), \
-                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget) as button:
+                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget) as button, \
+                patch("purchase_tagger_app.ctk.CTkOptionMenu", side_effect=FakeWidget):
             app._build_file_panel(FakeFrame(), row=0)
 
         button_texts = [call.kwargs["text"] for call in button.call_args_list]
         self.assertIn("Browse & Tag", button_texts)
         self.assertNotIn("Browse", button_texts)
+
+    def test_file_panel_renders_bank_and_account_type_selectors(self):
+        app = self.make_app()
+        app.browse_pdf = Mock()
+        app.clear_pdfs = Mock()
+        app._panel = lambda parent, **kwargs: FakeFrame()
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget) as label, \
+                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkOptionMenu", side_effect=FakeWidget) as option_menu:
+            app._build_file_panel(FakeFrame(), row=0)
+
+        label_texts = [call.kwargs.get("text") for call in label.call_args_list]
+        self.assertIn("Bank", label_texts)
+        self.assertIn("Type", label_texts)
+        self.assertEqual(option_menu.call_args_list[0].kwargs["values"], ["BAC", "Promerica"])
+        self.assertIs(option_menu.call_args_list[0].kwargs["variable"], app.bank_var)
+        self.assertEqual(option_menu.call_args_list[1].kwargs["values"], ["Credito", "Debito"])
+        self.assertIs(option_menu.call_args_list[1].kwargs["variable"], app.account_type_var)
+
+    def test_account_type_selector_refreshes_for_selected_bank(self):
+        app = self.make_app()
+        app.bank_var = SimpleVar("Promerica")
+        app.account_type_var = SimpleVar("Debito")
+        app.account_type_menu = FakeMenu()
+
+        app._refresh_account_type_options()
+
+        self.assertEqual(app.account_type_menu.values, ["Credito"])
+        self.assertEqual(app.account_type_var.get(), "Credito")
 
     def test_imports_view_has_no_manual_load_and_tag_header_button(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -409,9 +555,10 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         app = object.__new__(PurchaseTaggerUI)
         app.pdf_files = ["jan.pdf", "feb.pdf"]
         app.all_rows = [
-            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
-            ["02-FEB-25", "MARKET", "90.00", "USD", "Groceries"],
-            ["03-FEB-25", "UNKNOWN", "10.00", "USD", "N/A"],
+            ["01-ENE-25", "CARD PAYMENT", "250.00", "USD", "Payments"],
+            ["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "-90.00", "USD", "Groceries"],
+            ["03-FEB-25", "UNKNOWN", "-10.00", "USD", "N/A"],
         ]
         app.tags = {
             "Dining": {"limit": Decimal("50.00")},
@@ -435,8 +582,9 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         app = object.__new__(PurchaseTaggerUI)
         app.pdf_files = ["mixed.pdf"]
         app.all_rows = [
-            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
-            ["02-FEB-25", "MARKET", "90.00", "CRC", "Groceries"],
+            ["01-ENE-25", "CARD PAYMENT", "250.00", "USD", "Payments"],
+            ["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "-90.00", "CRC", "Groceries"],
         ]
         app.tags = {}
         app.natag = "N/A"
@@ -458,8 +606,9 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         app = object.__new__(PurchaseTaggerUI)
         app.pdf_files = ["mixed.pdf"]
         app.all_rows = [
-            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
-            ["02-FEB-25", "MARKET", "90.00", "CRC", "Groceries"],
+            ["01-ENE-25", "CARD PAYMENT", "250.00", "USD", "Payments"],
+            ["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "-90.00", "CRC", "Groceries"],
         ]
         app.tags = {}
         app.natag = "N/A"
@@ -521,17 +670,48 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         app.pdf_files = ["statement.pdf"]
         app.all_rows = []
         app.status_var = SimpleVar("")
+        app.bank_var = SimpleVar("BAC")
+        app.account_type_var = SimpleVar("Debito")
         app.apply_filter = Mock()
         app.update_idletasks = Mock()
         app.active_view = "Imports"
         app.show_view = Mock()
 
         with patch("purchase_tagger_app.process_purchases", return_value=[
-            ("01-ENE-25", "CAFE", Decimal("80.00"), "USD", "Dining", Decimal("0")),
-        ]):
+            ("01-ENE-25", "CAFE", Decimal("-80.00"), "USD", "Dining", Decimal("0")),
+        ]) as process_purchases:
             app.load()
 
+        process_purchases.assert_called_once_with("statement.pdf", bank="BAC", account_type="Debito")
+        self.assertEqual(app.all_rows, [["01-ENE-25", "CAFE", "-80.00", "USD", "Dining", "-"]])
         app.show_view.assert_called_once_with("Imports")
+
+    def test_load_displays_error_message_when_pdf_processing_fails(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.pdf_files = [r"C:\tmp\broken.pdf"]
+        app.all_rows = []
+        app.status_var = SimpleVar("")
+        app.bank_var = SimpleVar("BAC")
+        app.account_type_var = SimpleVar("Debito")
+        app.apply_filter = Mock()
+        app.update_idletasks = Mock()
+
+        with patch("purchase_tagger_app.process_purchases", side_effect=RuntimeError("Cannot read PDF")), \
+                patch("purchase_tagger_app.messagebox.showerror") as showerror:
+            app.load()
+
+        showerror.assert_called_once_with("Error", "broken.pdf: Cannot read PDF")
+        app.apply_filter.assert_called_once_with()
+
+
+class PurchaseTaggerDisplayRowTest(unittest.TestCase):
+    def test_display_purchase_row_moves_negative_to_sign_column(self):
+        row = ["01-ENE-25", "CARD PAYMENT", "-96,711.06", "CRC", "N/A", "-"]
+
+        self.assertEqual(
+            display_purchase_row(row),
+            ["01-ENE-25", "CARD PAYMENT", "-", "96,711.06", "CRC", "N/A"],
+        )
 
 
 class PurchaseTaggerRowMappingTest(unittest.TestCase):
@@ -559,7 +739,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         self.assertEqual(rows[0][4], "N/A")
         self.assertEqual(rows[1][4], "Groceries")
-        self.assertEqual(app.tree.items["item-b"], rows[1])
+        self.assertEqual(app.tree.items["item-b"], ["02-ENE-25", "BANANA MARKET", "+", "20.00", "USD", "Groceries"])
 
     def test_assign_tag_adds_keyword_for_mapped_na_row(self):
         rows = [
@@ -590,7 +770,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.tags["Groceries"]["keywords"], ["BANANA MARKET"])
         self.assertEqual(rows[0][4], "N/A")
         self.assertEqual(rows[1][4], "Groceries")
-        self.assertEqual(app.tree.items["item-b"], rows[1])
+        self.assertEqual(app.tree.items["item-b"], ["02-ENE-25", "BANANA MARKET", "+", "20.00", "USD", "Groceries"])
         save_tags.assert_called_once_with(app.tags)
 
     def test_row_mapping_helper_returns_original_row(self):
@@ -669,8 +849,8 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(list(app.tree_item_rows.values()), [rows[1]])
         self.assertEqual(app.total_var.get(), "Totals: CRC 20.00")
         self.assertEqual(app.visible_count_var.get(), "Showing 1 purchases")
-        self.assertEqual(app.tree.items["item-1"], ["02-FEB-25", "BANANA MARKET", "20.00", "CRC", "Groceries"])
-        self.assertEqual(app.tree.items["item-1"][4], "Groceries")
+        self.assertEqual(app.tree.items["item-1"], ["02-FEB-25", "BANANA MARKET", "+", "20.00", "CRC", "Groceries"])
+        self.assertEqual(app.tree.items["item-1"][5], "Groceries")
         self.assertEqual(app.kpi_vars["total_rows"].get(), "2")
         self.assertEqual(app.kpi_vars["visible_rows"].get(), "1")
         self.assertEqual(app.currency_menu.values, ["All currencies", "CRC", "USD"])
@@ -689,10 +869,12 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             app._build_purchase_table(FakeFrame(), row=0)
 
         tree = FakePurchaseTree.instances[0]
-        expected_columns = ["date", "description", "amount", "currency", "tag"]
+        expected_columns = ["date", "description", "sign", "amount", "currency", "tag"]
         self.assertEqual(tree.columns, expected_columns)
         self.assertEqual(tree.displaycolumns, expected_columns)
         self.assertEqual(tree.show, "headings")
+        self.assertEqual(tree.headings["sign"]["text"], "Sign")
+        self.assertEqual(tree.column_options["sign"]["anchor"], "center")
         self.assertEqual(tree.headings["tag"]["text"], "Tag")
         self.assertGreaterEqual(tree.column_options["tag"]["width"], 100)
         self.assertEqual(tree.column_options["tag"]["anchor"], "w")
@@ -825,6 +1007,29 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertIs(PurchaseTaggerUI._build_tags_view, tags_view._build_tags_view)
         self.assertIs(PurchaseTaggerUI.add_tag, tags_view.add_tag)
         self.assertIs(PurchaseTaggerUI.save_tags_from_view, tags_view.save_tags_from_view)
+        self.assertIs(PurchaseTaggerUI.import_tags_json, tags_view.import_tags_json)
+        self.assertIs(PurchaseTaggerUI.export_tags_json, tags_view.export_tags_json)
+
+    def test_tags_view_renders_json_import_and_export_buttons(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.workspace = FakeFrame()
+        app.tags = {}
+        app._build_page_header = Mock()
+        app._panel = lambda parent, **kwargs: FakeFrame()
+        app.refresh_tag_lists = Mock()
+
+        with patch("purchase_tagger_app.ctk.CTkFont", return_value="font"), \
+                patch("purchase_tagger_app.ctk.CTkLabel", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.tk.Listbox", side_effect=lambda *args, **kwargs: FakeListbox()), \
+                patch("purchase_tagger_app.tk.StringVar", side_effect=SimpleVar), \
+                patch("purchase_tagger_app.ctk.CTkFrame", side_effect=FakeCtkFrame), \
+                patch("purchase_tagger_app.ctk.CTkEntry", side_effect=FakeWidget), \
+                patch("purchase_tagger_app.ctk.CTkButton", side_effect=FakeWidget) as button:
+            app._build_tags_view()
+
+        button_texts = [call.kwargs["text"] for call in button.call_args_list]
+        self.assertIn("Import JSON", button_texts)
+        self.assertIn("Export JSON", button_texts)
 
     def test_refresh_tag_lists_sorts_tags_and_clears_details(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -930,6 +1135,134 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(app.tags["Dining"]["limit"], Decimal("42987.5"))
         warning.assert_not_called()
+
+    def test_export_tags_json_writes_current_tags_to_selected_path(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"tag_name": {"keywords": ["KEYWORD"], "limit": Decimal("10.5")}}
+        app.status_var = SimpleVar("")
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as temp_file:
+            path = temp_file.name
+
+        try:
+            with patch("purchase_tagger_app.filedialog.asksaveasfilename", return_value=path) as save_dialog, \
+                    patch("purchase_tagger_app.messagebox.showinfo") as showinfo:
+                app.export_tags_json()
+
+            self.assertEqual(save_dialog.call_args.kwargs["initialfile"], "tag_list.json")
+            with open(path, encoding="utf-8") as exported:
+                self.assertEqual(
+                    json.load(exported),
+                    {"tag_name": {"keywords": ["KEYWORD"], "limit": 10.5}},
+                )
+            showinfo.assert_called_once()
+            self.assertEqual(app.status_var.get(), f"Exported tags to {path}")
+        finally:
+            os.remove(path)
+
+    def test_import_tags_json_merges_saves_refreshes_and_reports_counts(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+        app.tag_listbox = FakeListbox()
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("")
+        app.status_var = SimpleVar("")
+        app._refresh_tag_filter_options = Mock()
+
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as temp_file:
+            path = temp_file.name
+            json.dump(
+                {
+                    "Dining": {"keywords": ["CAFE", "LUNCH"], "limit": 2500},
+                    "tag_name": {"keywords": ["KEYWORD"], "limit": 0},
+                },
+                temp_file,
+            )
+
+        try:
+            with patch("purchase_tagger_app.filedialog.askopenfilename", return_value=path), \
+                    patch("purchase_tagger_app.save_tags") as save_tags, \
+                    patch("purchase_tagger_app.messagebox.showinfo") as showinfo:
+                app.import_tags_json()
+
+            self.assertEqual(
+                app.tags,
+                {
+                    "Dining": {"keywords": ["CAFE", "LUNCH"], "limit": 2500},
+                    "tag_name": {"keywords": ["KEYWORD"], "limit": 0},
+                },
+            )
+            self.assertEqual(app.tag_listbox.items, ["Dining", "tag_name"])
+            save_tags.assert_called_once_with(app.tags)
+            app._refresh_tag_filter_options.assert_called_once()
+            showinfo.assert_called_once_with(
+                "Imported",
+                "Imported tags from JSON.\nTags added: 1\nKeywords added: 2\nLimits updated: 1",
+            )
+            self.assertEqual(app.status_var.get(), "Imported 1 tag, 2 keywords, and updated 1 limit")
+        finally:
+            os.remove(path)
+
+    def test_import_tags_json_cancel_does_not_save(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+
+        with patch("purchase_tagger_app.filedialog.askopenfilename", return_value=""), \
+                patch("purchase_tagger_app.save_tags") as save_tags:
+            app.import_tags_json()
+
+        self.assertEqual(app.tags, {"Dining": {"keywords": ["CAFE"], "limit": 1000}})
+        save_tags.assert_not_called()
+
+    def test_import_tags_json_invalid_json_shows_error_without_saving(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+        app.status_var = SimpleVar("")
+
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as temp_file:
+            path = temp_file.name
+            json.dump([], temp_file)
+
+        try:
+            with patch("purchase_tagger_app.filedialog.askopenfilename", return_value=path), \
+                    patch("purchase_tagger_app.save_tags") as save_tags, \
+                    patch("purchase_tagger_app.messagebox.showerror") as showerror:
+                app.import_tags_json()
+
+            self.assertEqual(app.tags, {"Dining": {"keywords": ["CAFE"], "limit": 1000}})
+            save_tags.assert_not_called()
+            showerror.assert_called_once()
+            self.assertEqual(app.status_var.get(), "Import failed")
+        finally:
+            os.remove(path)
+
+    def test_import_tags_json_save_failure_preserves_current_tags(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.tags = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+        app.tag_listbox = FakeListbox()
+        app.keyword_listbox = FakeListbox()
+        app.limit_var = SimpleVar("")
+        app.status_var = SimpleVar("")
+        app.refresh_tag_lists = Mock()
+        app._refresh_tag_filter_options = Mock()
+
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json", encoding="utf-8") as temp_file:
+            path = temp_file.name
+            json.dump({"Travel": {"keywords": ["UBER"], "limit": 2500}}, temp_file)
+
+        try:
+            with patch("purchase_tagger_app.filedialog.askopenfilename", return_value=path), \
+                    patch("purchase_tagger_app.save_tags", side_effect=OSError("disk full")), \
+                    patch("purchase_tagger_app.messagebox.showerror") as showerror:
+                app.import_tags_json()
+
+            self.assertEqual(app.tags, {"Dining": {"keywords": ["CAFE"], "limit": 1000}})
+            app.refresh_tag_lists.assert_not_called()
+            app._refresh_tag_filter_options.assert_not_called()
+            showerror.assert_called_once()
+            self.assertEqual(app.status_var.get(), "Import failed")
+        finally:
+            os.remove(path)
 
     def test_tag_workspace_add_edit_remove_tag(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -1127,8 +1460,8 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
     def test_draw_summary_uses_all_rows_independent_of_purchase_filter(self):
         all_rows = [
-            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
-            ["02-FEB-25", "MARKET", "90.00", "CRC", "Groceries"],
+            ["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "-90.00", "CRC", "Groceries"],
         ]
         app = object.__new__(PurchaseTaggerUI)
         app.all_rows = all_rows
@@ -1156,8 +1489,8 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
     def test_draw_summary_updates_insights_with_selected_currency_and_month(self):
         all_rows = [
-            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
-            ["02-FEB-25", "MARKET", "90.00", "CRC", "Groceries"],
+            ["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "-90.00", "CRC", "Groceries"],
         ]
         app = object.__new__(PurchaseTaggerUI)
         app.all_rows = all_rows
@@ -1226,12 +1559,12 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             "purchase_count": 1,
             "top_tags": [("Dining", Decimal("80.00"))],
             "over_limit_tags": [("Dining", Decimal("80.00"), Decimal("50.00"))],
-            "largest_purchases": [["01-ENE-25", "CAFE", "80.00", "USD", "Dining"]],
+            "largest_purchases": [["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"]],
             "headline": "Dining is over its limit by USD 30.00.",
             "detail": "- Dining accounts for 100.0% of spend.\n- Total spend is USD 80.00 across 1 purchase.",
             "messages": [],
         }):
-            app._render_summary_insights([["01-ENE-25", "CAFE", "80.00", "USD", "Dining"]], {"USD"}, "Todos")
+            app._render_summary_insights([["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"]], {"USD"}, "Todos")
 
         self.assertEqual(app.summary_headline_var.get(), "Dining is over its limit by USD 30.00.")
         self.assertEqual(
@@ -1273,8 +1606,8 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
     def test_draw_summary_shows_message_when_multiple_currencies_are_selected(self):
         app = object.__new__(PurchaseTaggerUI)
         app.all_rows = [
-            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
-            ["02-FEB-25", "MARKET", "90.00", "CRC", "Groceries"],
+            ["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "-90.00", "CRC", "Groceries"],
         ]
         app.summary_frame = FakeFrame()
         app.summary_currency_vars = {
@@ -1297,7 +1630,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
     def test_draw_summary_limit_chart_uses_alert_color_for_over_limit_tags(self):
         app = object.__new__(PurchaseTaggerUI)
-        app.all_rows = [["01-ENE-25", "CAFE", "80.00", "USD", "Dining"]]
+        app.all_rows = [["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"]]
         app.summary_frame = FakeFrame()
         app.summary_currency_vars = {"USD": SimpleVar(True)}
         app.summary_month_var = SimpleVar("Todos")
@@ -1317,6 +1650,28 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         self.assertEqual(ax.bar_calls[0][1]["color"], ["#dc2626"])
 
+    def test_draw_summary_uses_pie_chart_for_negative_purchase_spend(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.all_rows = [
+            ["01-ENE-25", "CARD PAYMENT", "-80.00", "USD", "Payments", "-"],
+            ["02-ENE-25", "CAFE", "30.00", "USD", "Dining", "+"],
+        ]
+        app.summary_frame = FakeFrame()
+        app.summary_currency_vars = {"USD": SimpleVar(True)}
+        app.summary_month_var = SimpleVar("Todos")
+        app.summary_choice_var = SimpleVar("Spend by Tag")
+        app.tags = {}
+        app._render_summary_insights = lambda rows, selected, month: None
+        ax = FakeAxes()
+
+        with patch("purchase_tagger_app.filter_rows_by_month", side_effect=lambda rows, month: list(rows)), \
+                patch("purchase_tagger_app.plt.subplots", return_value=(FakeFigure(), ax)), \
+                patch("purchase_tagger_app.FigureCanvasTkAgg", return_value=FakeCanvas()):
+            app.draw_summary()
+
+        self.assertEqual(len(ax.pie_calls), 1)
+        self.assertEqual(len(ax.bar_calls), 0)
+
     def test_sort_column_uses_decimal_for_amounts(self):
         app = object.__new__(PurchaseTaggerUI)
         app.tree = FakeTree(["row-a", "row-b", "row-c"])
@@ -1329,6 +1684,27 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.sort_column("amount", False)
 
         self.assertEqual(app.tree.visible_order, ["row-b", "row-a", "row-c"])
+
+    def test_export_csv_writes_visible_sign_column_order(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.filtered_rows = [["01-ENE-25", "CAFE", "-10.00", "USD", "Dining", "-"]]
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as temp_file:
+            path = temp_file.name
+
+        try:
+            with patch("purchase_tagger_app.filedialog.asksaveasfilename", return_value=path), \
+                    patch("purchase_tagger_app.messagebox.showinfo") as showinfo:
+                app.export_csv()
+
+            with open(path, newline="", encoding="utf-8") as exported:
+                rows = [line.strip() for line in exported.readlines()]
+
+            self.assertEqual(rows[0], "date,description,sign,amount,currency,tag")
+            self.assertEqual(rows[1], "01-ENE-25,CAFE,-,10.00,USD,Dining")
+            showinfo.assert_called_once()
+        finally:
+            os.remove(path)
 
     def test_clear_summary_frame_destroys_canvas_widget_and_clears_refs(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -1352,8 +1728,8 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
             "Groceries": {"limit": 200},
         }
         rows = [
-            ["01-ENE-25", "CAFE", "80.00", "USD", "Dining"],
-            ["02-ENE-25", "MARKET", "90.00", "USD", "Groceries"],
+            ["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"],
+            ["02-ENE-25", "MARKET", "-90.00", "USD", "Groceries"],
         ]
         FakeSummaryTree.instances = []
 

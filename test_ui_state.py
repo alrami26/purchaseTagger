@@ -90,6 +90,15 @@ def test_format_totals_uses_decimal_math_for_cents():
     assert format_totals(rows) == "Totals: USD 0.30"
 
 
+def test_format_totals_nets_positive_and_negative_signed_rows():
+    rows = [
+        ["01-MAY-26", "CARD PAYMENT", "-25.00", "USD", "Payments", "-"],
+        ["02-MAY-26", "CAFE", "10.00", "USD", "Dining", "+"],
+    ]
+
+    assert format_totals(rows) == "Totals: USD -15.00"
+
+
 def test_build_file_label_handles_empty_single_and_multiple_files():
     assert build_file_label([]) == "No PDFs selected"
     assert build_file_label([os.path.join("tmp", "statement.pdf")]) == "statement.pdf"

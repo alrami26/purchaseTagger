@@ -7,7 +7,8 @@ A simple Python/Tkinter application to extract purchases from PDF files, tag the
 ## Features
 
 - **Multiple PDF Support**: Select one or more PDFs for batch processing.
-- **Custom Tags & Keywords**: Manage tags, keywords, and optional limits in `tags.json` through the built-in Tag Editor.
+- **Bank & Account Type Selection**: Choose the statement bank (`BAC` or `Promerica`) and whether the import is `Credito` or `Debito`.
+- **Custom Tags & Keywords**: Manage tags, keywords, optional limits, and JSON import/export through the built-in Tags view.
 - **Case-Insensitive Matching**: Keywords match purchase descriptions regardless of case.
 - **Search & Filter**: Live text search filters the displayed purchases.
 - **Summary Views**: Choose Spend by Tag, Monthly Spend, Cumulative Spend, Límite vs Gasto por Tag, or Gasto Promedio por Tag/Mes.
@@ -56,7 +57,7 @@ pip install -r requirements-dev.txt
    python purchase_tagger_app.py
    ```
 
-2. Click **Browse & Tag** and choose one or more PDF files containing purchase data. The app automatically parses the selected PDFs, tags each purchase, and displays the table.
+2. Choose the bank (`BAC` or `Promerica`) and account type (`Credito` or `Debito`), then click **Browse & Tag** and choose one or more PDF files containing purchase data. The app automatically parses the selected PDFs, tags each purchase, and displays the table.
 3. Use **Search** to filter rows by any displayed text.
 4. Click **Summary** and choose:
    - **Spend by Tag**: Pie chart of total spend per tag.
@@ -66,7 +67,7 @@ pip install -r requirements-dev.txt
    - **Gasto Promedio por Tag/Mes**: Table of average monthly spend by tag.
    Summary charts and limit comparisons require one selected currency at a time to avoid mixing unrelated monetary totals.
 5. Click **Export** to save the current filtered table to CSV.
-6. Use the **Tags** sidebar view to add, edit, or remove tags, keywords, and limits.
+6. Use the **Tags** sidebar view to add, edit, remove, import, or export tags, keywords, and limits. **Export JSON** saves the tag list with `tag_list.json` as the suggested filename.
 
 ---
 
@@ -76,18 +77,16 @@ pip install -r requirements-dev.txt
 
 ```json
 {
-  "Groceries": {
-    "keywords": ["WALMART", "SAFEWAY"],
-    "limit": 500
-  },
-  "Travel": {
-    "keywords": ["AIRLINES", "UBER"],
-    "limit": 1000
+  "tag_name": {
+    "keywords": ["KEYWORD"],
+    "limit": 0
   }
 }
 ```
 
-Keywords are matched case-insensitively against purchase descriptions.
+Each top-level key is the tag name. Keywords are matched case-insensitively against purchase descriptions.
+
+The **Tags** view can export this structure to a JSON file or import another JSON file with the same structure. Imports are additive: new tags are added, missing keywords are appended to existing tags, duplicate keywords are skipped, and imported limits replace current limits for matching tag names.
 
 ---
 

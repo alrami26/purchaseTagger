@@ -2,7 +2,7 @@
 
 Generated for the current workspace on 2026-05-20.
 
-This project is a small Tkinter desktop app that reads purchase PDFs, extracts purchase rows, assigns tags from `tags.json`, shows/filter/summarizes results, and exports CSV output.
+This project is a small Tkinter desktop app that reads purchase PDFs, extracts purchase rows, assigns tags from `tags.json`, shows/filter/summarizes results, imports/exports tag JSON, and exports CSV output.
 
 ## Current Workspace State
 
@@ -31,6 +31,7 @@ flowchart TD
     Tags["tags.json\nTag keywords and limits"]
     PDF["Selected PDF files\nexternal user input"]
     Matplotlib["matplotlib\nsummary charts"]
+    TagJson["Tag JSON file\nimport/export"]
     CSV["Exported CSV file\nexternal output"]
 
     User -->|"runs"| App
@@ -39,6 +40,8 @@ flowchart TD
     Extractor -->|"reads PDF text"| PDF
     Extractor -->|"loads tags and assigns tag"| TagStore
     TagStore -->|"reads/writes"| Tags
+    App -->|"imports/exports"| TagJson
+    TagJson -->|"validated and merged by"| TagStore
     Extractor -->|"returns tagged purchase tuples"| App
     App -->|"loads/saves tag edits"| TagStore
     App -->|"calculates filter and summary data"| Summary
@@ -50,9 +53,9 @@ flowchart TD
 
 | File or directory | Status | Role | Reads from | Writes to | Used by |
 |---|---:|---|---|---|---|
-| `purchase_tagger_app.py` | Present | Main executable UI. Coordinates PDF selection, loading, table display, filtering, sorting, summaries, tag editing, and CSV export. | `purchase_extractor.process_purchases`, `tag_store`, `summary`, selected PDF paths | `tags.json` through `tag_store`, user-selected CSV path | User directly runs it; `purchase_tagger_app.spec` packages it |
+| `purchase_tagger_app.py` | Present | Main executable UI. Coordinates PDF selection, loading, table display, filtering, sorting, summaries, tag editing, tag JSON import/export, and CSV export. | `purchase_extractor.process_purchases`, `tag_store`, `summary`, selected PDF paths, user-selected tag JSON path | `tags.json` through `tag_store`, user-selected tag JSON path, user-selected CSV path | User directly runs it; `purchase_tagger_app.spec` packages it |
 | `purchase_extractor.py` | Present | Extracts PDF text, parses purchase lines, normalizes purchase dates, tags parsed rows, and returns `(date, description, amount, currency, tag, limit)` tuples. | Selected PDF files, `tag_store.load_tags()` | None directly | Imported by `purchase_tagger_app.py`; tested by `test_purchase_extractor.py` |
-| `tag_store.py` | Present | Central helper for locating, loading, saving, migrating, and matching tag data. | `tags.json` | `tags.json` when missing or explicitly saved | App, extractor, and tag-store tests |
+| `tag_store.py` | Present | Central helper for locating, loading, saving, migrating, merging, and matching tag data. | `tags.json`, user-selected tag JSON path | `tags.json` when missing or explicitly saved, user-selected export path | App, extractor, and tag-store tests |
 | `summary.py` | Present | Pure helper functions for text/month filtering, currency totals, and summary aggregates. | In-memory app rows | None | App summary views and `test_summary.py` |
 | `ui_state.py` | Present | Pure helper functions for view filters, KPI stats, totals formatting, and selected-file labels. | In-memory app rows and tag settings | None | App workspace views and `test_ui_state.py` |
 | `money.py` | Present | Shared Decimal parsing and formatting helpers for monetary values. | In-memory strings and numeric values | None | App, summary, tag store, UI state, and tag view helpers |
@@ -90,7 +93,7 @@ flowchart TD
 
 ```json
 {
-  "Tag Name": {
+  "tag_name": {
     "keywords": ["KEYWORD"],
     "limit": 0
   }
@@ -98,6 +101,8 @@ flowchart TD
 ```
 
 Older list-only tag values are migrated in memory by `tag_store.load_tags()`.
+
+Tag JSON export uses the same structure and suggests `tag_list.json` as the default filename. Tag JSON import is additive: new tags are added, missing keywords are appended, duplicate keywords are skipped, and imported limits replace current limits for matching tag names.
 
 ## External Dependencies
 

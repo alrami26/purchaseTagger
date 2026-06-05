@@ -52,6 +52,17 @@ def _build_tags_view(self):
         row=0, column=2, sticky="ew"
     )
 
+    json_buttons = ctk.CTkFrame(left_panel, fg_color="transparent")
+    json_buttons.grid(row=3, column=0, sticky="ew", padx=14, pady=(0, 14))
+    for index in range(2):
+        json_buttons.grid_columnconfigure(index, weight=1)
+    ctk.CTkButton(json_buttons, text="Import JSON", command=self.import_tags_json).grid(
+        row=0, column=0, sticky="ew", padx=(0, 6)
+    )
+    ctk.CTkButton(json_buttons, text="Export JSON", command=self.export_tags_json).grid(
+        row=0, column=1, sticky="ew"
+    )
+
     right_panel = self._panel(content, row=0, column=1, sticky="nsew")
     right_panel.grid_columnconfigure(0, weight=1)
     right_panel.grid_rowconfigure(3, weight=1)
@@ -174,6 +185,66 @@ def _set_tag_selection(self, tag):
 def _select_tag_in_list(self, tag):
     self._set_tag_selection(tag)
     self.load_tag_details()
+
+
+def _count_phrase(count, singular, plural=None):
+    word = singular if count == 1 else (plural or f"{singular}s")
+    return f"{count} {word}"
+
+
+def _import_status_message(counts):
+    return (
+        f"Imported {_count_phrase(counts['tags_added'], 'tag')}, "
+        f"{_count_phrase(counts['keywords_added'], 'keyword')}, "
+        f"and updated {_count_phrase(counts['limits_updated'], 'limit')}"
+    )
+
+
+def import_tags_json(self):
+    if not self.save_current_tag_limit():
+        return
+    app = _app_dependencies()
+    path = app.filedialog.askopenfilename(filetypes=[("JSON", "*.json"), ("All files", "*.*")])
+    if not path:
+        return
+    try:
+        imported_tags = app.load_tags(path)
+        merged_tags, counts = app.merge_tags(self.tags, imported_tags)
+        app.save_tags(merged_tags)
+        self.tags = merged_tags
+        self.refresh_tag_lists()
+        self._refresh_tag_filter_options()
+        app.messagebox.showinfo(
+            "Imported",
+            "Imported tags from JSON.\n"
+            f"Tags added: {counts['tags_added']}\n"
+            f"Keywords added: {counts['keywords_added']}\n"
+            f"Limits updated: {counts['limits_updated']}",
+        )
+        self._set_status(_import_status_message(counts))
+    except Exception as exc:
+        app.messagebox.showerror("Import Error", str(exc))
+        self._set_status("Import failed")
+
+
+def export_tags_json(self):
+    if not self.save_current_tag_limit():
+        return
+    app = _app_dependencies()
+    path = app.filedialog.asksaveasfilename(
+        defaultextension=".json",
+        initialfile="tag_list.json",
+        filetypes=[("JSON", "*.json"), ("All files", "*.*")],
+    )
+    if not path:
+        return
+    try:
+        app.save_tags(self.tags, path)
+        app.messagebox.showinfo("Exported", f"Exported tags to {path}")
+        self._set_status(f"Exported tags to {path}")
+    except Exception as exc:
+        app.messagebox.showerror("Export Error", str(exc))
+        self._set_status("Export failed")
 
 
 def add_tag(self):

@@ -101,6 +101,39 @@ class TagStoreTest(unittest.TestCase):
 
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), original)
 
+    def test_merge_tags_adds_new_tag_from_import(self):
+        current = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+        imported = {"tag_name": {"keywords": ["STORE"], "limit": 2000}}
+
+        merged, counts = tag_store.merge_tags(current, imported)
+
+        self.assertEqual(
+            merged,
+            {
+                "Dining": {"keywords": ["CAFE"], "limit": 1000},
+                "tag_name": {"keywords": ["STORE"], "limit": 2000},
+            },
+        )
+        self.assertEqual(counts, {"tags_added": 1, "keywords_added": 1, "limits_updated": 0})
+
+    def test_merge_tags_adds_keywords_and_replaces_existing_limit(self):
+        current = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+        imported = {"Dining": {"keywords": ["CAFE", "LUNCH"], "limit": 2500}}
+
+        merged, counts = tag_store.merge_tags(current, imported)
+
+        self.assertEqual(merged["Dining"], {"keywords": ["CAFE", "LUNCH"], "limit": 2500})
+        self.assertEqual(counts, {"tags_added": 0, "keywords_added": 1, "limits_updated": 1})
+
+    def test_merge_tags_does_not_duplicate_existing_keywords(self):
+        current = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+        imported = {"Dining": {"keywords": ["CAFE"], "limit": 1000}}
+
+        merged, counts = tag_store.merge_tags(current, imported)
+
+        self.assertEqual(merged["Dining"]["keywords"], ["CAFE"])
+        self.assertEqual(counts, {"tags_added": 0, "keywords_added": 0, "limits_updated": 0})
+
     def test_default_tag_file_path_keeps_source_tags_json_in_dev_mode(self):
         expected = Path(tag_store.__file__).resolve().parent / "tags.json"
 
