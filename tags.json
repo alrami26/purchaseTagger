@@ -18,11 +18,11 @@
     ],
     "limit": 80841,
     "budget_type": "Expense",
-    "parent_category": "Sin clasificar",
+    "parent_category": "Alimentacion",
     "budget_period": "monthly",
     "planned_amount": 80841,
-    "expense_nature": null,
-    "financial_purpose": null
+    "expense_nature": "variable",
+    "financial_purpose": "Necesidad"
   },
   "Salidas": {
     "keywords": [
@@ -75,11 +75,11 @@
     ],
     "limit": 78590,
     "budget_type": "Expense",
-    "parent_category": "Sin clasificar",
+    "parent_category": "Compras",
     "budget_period": "monthly",
     "planned_amount": 78590,
-    "expense_nature": null,
-    "financial_purpose": null
+    "expense_nature": "variable",
+    "financial_purpose": "Deseo"
   },
   "Carne": {
     "keywords": [
@@ -137,7 +137,7 @@
     "budget_period": "monthly",
     "planned_amount": 36000,
     "expense_nature": "fixed",
-    "financial_purpose": "Necesidad"
+    "financial_purpose": "Deseo"
   },
   "Concierto": {
     "keywords": [
@@ -166,11 +166,11 @@
     ],
     "limit": 35500,
     "budget_type": "Expense",
-    "parent_category": "Sin clasificar",
+    "parent_category": "Familia",
     "budget_period": "monthly",
     "planned_amount": 35500,
-    "expense_nature": null,
-    "financial_purpose": null
+    "expense_nature": "variable",
+    "financial_purpose": "Necesidad"
   },
   "Carro": {
     "keywords": [
@@ -221,11 +221,11 @@
     ],
     "limit": 20000,
     "budget_type": "Expense",
-    "parent_category": "Sin clasificar",
+    "parent_category": "Personal",
     "budget_period": "monthly",
     "planned_amount": 20000,
-    "expense_nature": null,
-    "financial_purpose": null
+    "expense_nature": "variable",
+    "financial_purpose": "Deseo"
   },
   "Regalos": {
     "keywords": [
@@ -240,8 +240,8 @@
     "parent_category": "Sin clasificar",
     "budget_period": "monthly",
     "planned_amount": 5000,
-    "expense_nature": null,
-    "financial_purpose": null
+    "expense_nature": "variable",
+    "financial_purpose": "Compromiso"
   },
   "Bebe": {
     "keywords": [
@@ -296,11 +296,11 @@
     ],
     "limit": 0,
     "budget_type": "Expense",
-    "parent_category": "Sin clasificar",
+    "parent_category": "Entretenimiento",
     "budget_period": "monthly",
     "planned_amount": 0,
-    "expense_nature": null,
-    "financial_purpose": null
+    "expense_nature": "variable",
+    "financial_purpose": "Deseo"
   },
   "Tarjeta": {
     "keywords": [
@@ -308,10 +308,10 @@
     ],
     "limit": 0,
     "budget_type": "Expense",
-    "parent_category": "Sin clasificar",
+    "parent_category": "Personal",
     "budget_period": "monthly",
     "planned_amount": 0,
-    "expense_nature": null,
-    "financial_purpose": null
+    "expense_nature": "variable",
+    "financial_purpose": "Compromiso"
   }
 }
