@@ -10,6 +10,7 @@ from purchase_extractor import (
     ACCOUNT_TYPE_CREDIT,
     ACCOUNT_TYPE_DEBIT,
     BANK_BAC,
+    BANK_BCR,
     BANK_PROMERICA,
     SUPPORTED_ACCOUNT_TYPES_BY_BANK,
     process_purchases,
@@ -51,8 +52,14 @@ def resource_path(relative_path):
 APP_ICON_PATH = resource_path(os.path.join("assets", "app_icon.ico"))
 APP_ICON_PNG_PATH = resource_path(os.path.join("assets", "app_icon.png"))
 WINDOWS_APP_ID = "PurchaseTagger.PDFPurchaseTagger.App"
-BANK_OPTIONS = [BANK_BAC, BANK_PROMERICA]
+BANK_OPTIONS = [BANK_BAC, BANK_PROMERICA, BANK_BCR]
 ACCOUNT_TYPE_OPTIONS = [ACCOUNT_TYPE_CREDIT, ACCOUNT_TYPE_DEBIT]
+STATEMENT_FILETYPES = [
+    ("Estados de cuenta", "*.pdf *.html *.htm *.xls"),
+    ("PDF", "*.pdf"),
+    ("HTML", "*.html *.htm"),
+    ("Excel HTML", "*.xls"),
+]
 ALL_CURRENCIES = "Todas las monedas"
 DEFAULT_WINDOW_WIDTH = 1020
 DEFAULT_WINDOW_HEIGHT = 680
@@ -208,7 +215,7 @@ class PurchaseTaggerUI(ctk.CTk):
 
         subtitle = ctk.CTkLabel(
             self.sidebar,
-            text="Espacio financiero PDF",
+            text="Espacio financiero",
             font=ctk.CTkFont(size=12),
             text_color="#aeb8c7",
         )
@@ -410,7 +417,7 @@ class PurchaseTaggerUI(ctk.CTk):
             "top_tag": "Ninguna",
             "largest_purchase": "Ninguna",
             "headline": "Carga compras para ver hallazgos.",
-            "detail": "Selecciona PDFs para completar este resumen.",
+            "detail": "Selecciona archivos para completar este resumen.",
         }
 
         if not rows:
@@ -552,7 +559,7 @@ class PurchaseTaggerUI(ctk.CTk):
         self._build_page_header(
             self.workspace,
             "Importar",
-            "Carga PDFs, etiqueta compras y revisa resultados.",
+            "Carga estados de cuenta, etiqueta compras y revisa resultados.",
         )
 
         content = ctk.CTkFrame(self.workspace, fg_color="transparent")
@@ -589,7 +596,7 @@ class PurchaseTaggerUI(ctk.CTk):
         panel.grid_columnconfigure(0, weight=1)
         panel.grid_columnconfigure(1, weight=0)
         panel.grid_columnconfigure(2, weight=0)
-        ctk.CTkLabel(panel, text="PDFs seleccionados", text_color="#6b7280", font=ctk.CTkFont(size=11)).grid(
+        ctk.CTkLabel(panel, text="Archivos seleccionados", text_color="#6b7280", font=ctk.CTkFont(size=11)).grid(
             row=0, column=0, sticky="w", padx=14, pady=(12, 0)
         )
         ctk.CTkLabel(
@@ -1272,11 +1279,11 @@ class PurchaseTaggerUI(ctk.CTk):
         return values
 
     def browse_pdf(self):
-        files = filedialog.askopenfilenames(filetypes=[("Archivos PDF", "*.pdf")])
+        files = filedialog.askopenfilenames(filetypes=STATEMENT_FILETYPES)
         if files:
             self.pdf_files = list(files)
             self.file_label_var.set(build_file_label(self.pdf_files))
-            self.status_var.set(f"{len(self.pdf_files)} PDF file(s) selected")
+            self.status_var.set(f"{len(self.pdf_files)} archivo(s) seleccionado(s)")
             self.load()
 
     def clear_pdfs(self):
@@ -1293,7 +1300,7 @@ class PurchaseTaggerUI(ctk.CTk):
         self.account_type_var.set(ACCOUNT_TYPE_CREDIT)
         self._refresh_account_type_options(BANK_BAC)
         self.file_label_var.set(build_file_label(self.pdf_files))
-        self.status_var.set("No hay PDFs seleccionados")
+        self.status_var.set("No hay archivos seleccionados")
         if self.__dict__.get("active_view") == "Imports":
             self.show_view("Imports")
         else:
@@ -1301,10 +1308,10 @@ class PurchaseTaggerUI(ctk.CTk):
 
     def load(self):
         if not self.pdf_files:
-            messagebox.showwarning('Sin archivo', 'Selecciona uno o más archivos PDF.')
+            messagebox.showwarning('Sin archivo', 'Selecciona uno o más archivos de estado de cuenta.')
             return
         self.all_rows = []
-        self.status_var.set("Procesando PDFs...")
+        self.status_var.set("Procesando archivos...")
         self.update_idletasks()
         bank = self._var_value("bank_var", BANK_BAC)
         account_type = self._var_value("account_type_var", ACCOUNT_TYPE_CREDIT)

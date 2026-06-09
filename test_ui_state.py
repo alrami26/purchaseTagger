@@ -100,6 +100,6 @@ def test_format_totals_nets_positive_and_negative_signed_rows():
 
 
 def test_build_file_label_handles_empty_single_and_multiple_files():
-    assert build_file_label([]) == "No hay PDFs seleccionados"
+    assert build_file_label([]) == "No hay archivos seleccionados"
     assert build_file_label([os.path.join("tmp", "statement.pdf")]) == "statement.pdf"
-    assert build_file_label([os.path.join("tmp", "a.pdf"), os.path.join("tmp", "b.pdf")]) == "2 PDFs seleccionados"
+    assert build_file_label([os.path.join("tmp", "a.pdf"), os.path.join("tmp", "b.html")]) == "2 archivos seleccionados"

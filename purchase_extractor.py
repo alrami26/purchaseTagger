@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 from datetime import datetime
 from decimal import Decimal
+from html.parser import HTMLParser
 import re
+import unicodedata
 from pypdf import PdfReader
 from tag_store import load_tags, tag_purchase
 
@@ -35,14 +37,16 @@ PURCHASE_SECTION_END_MARKERS = (
     "Intereses",
 )
 BANK_BAC = "BAC"
+BANK_BCR = "BCR"
 BANK_PROMERICA = "Promerica"
 ACCOUNT_TYPE_CREDIT = "Credito"
 ACCOUNT_TYPE_DEBIT = "Debito"
-SUPPORTED_BANKS = (BANK_BAC, BANK_PROMERICA)
+SUPPORTED_BANKS = (BANK_BAC, BANK_PROMERICA, BANK_BCR)
 SUPPORTED_ACCOUNT_TYPES = (ACCOUNT_TYPE_CREDIT, ACCOUNT_TYPE_DEBIT)
 SUPPORTED_ACCOUNT_TYPES_BY_BANK = {
     BANK_BAC: (ACCOUNT_TYPE_CREDIT, ACCOUNT_TYPE_DEBIT),
     BANK_PROMERICA: (ACCOUNT_TYPE_CREDIT,),
+    BANK_BCR: (ACCOUNT_TYPE_DEBIT,),
 }
 TRANSACTION_START_RE = re.compile(
     rf"^(?:\d+\s+)?\d{{1,2}}-(?:{MONTH_RE})-\d{{2}}\b",
@@ -82,6 +86,16 @@ PROMERICA_DATE_RE = re.compile(r"^\s*(\d{2})/(\d{2})/(\d{4})\b")
 PROMERICA_AMOUNT_COLUMNS_RE = re.compile(
     r"(-?\s*[\d,]+\.[0-9]{2})\s+(-?\s*[\d,]+\.[0-9]{2})\s*$"
 )
+BCR_CURRENCIES = {
+    "colones": "CRC",
+    "dolares": "USD",
+}
+BCR_HEADER_COLUMNS = {
+    "fecha_transaccion": ("fecha transaccion",),
+    "description": ("descripcion",),
+    "debit": ("debitos",),
+    "credit": ("creditos",),
+}
 
 
 def normalize_purchase_date(date_str):
@@ -400,6 +414,131 @@ def extract_bac_debit_movements(full_text):
     return movements
 
 
+class _BCRMovementsHTMLParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.rows = []
+        self.document_text = []
+        self._in_t1 = False
+        self._table_depth = 0
+        self._in_cell = False
+        self._current_cell = []
+        self._current_row = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "table":
+            if attrs.get("id") == "t1":
+                self._in_t1 = True
+                self._table_depth = 1
+            elif self._in_t1:
+                self._table_depth += 1
+        elif self._in_t1 and tag == "tr":
+            self._current_row = []
+        elif self._in_t1 and tag in ("td", "th"):
+            self._in_cell = True
+            self._current_cell = []
+
+    def handle_endtag(self, tag):
+        if self._in_t1 and tag in ("td", "th") and self._in_cell:
+            text = " ".join("".join(self._current_cell).split())
+            if self._current_row is not None:
+                self._current_row.append(text)
+            self._in_cell = False
+        elif self._in_t1 and tag == "tr":
+            if self._current_row and any(self._current_row):
+                self.rows.append(self._current_row)
+            self._current_row = None
+        elif self._in_t1 and tag == "table":
+            self._table_depth -= 1
+            if self._table_depth == 0:
+                self._in_t1 = False
+
+    def handle_data(self, data):
+        if data and data.strip():
+            self.document_text.append(data)
+        if self._in_cell:
+            self._current_cell.append(data)
+
+
+def _read_text_file(file_path):
+    with open(file_path, "r", encoding="utf-8-sig", errors="replace") as statement:
+        return statement.read()
+
+
+def _fold_text(value):
+    normalized = unicodedata.normalize("NFKD", value or "")
+    without_accents = "".join(char for char in normalized if not unicodedata.combining(char))
+    return " ".join(without_accents.casefold().split())
+
+
+def _bcr_debit_currency(document_text):
+    folded = _fold_text(document_text)
+    for marker, currency in BCR_CURRENCIES.items():
+        if marker in folded:
+            return currency
+    return "CRC"
+
+
+def _bcr_header_indexes(header_row):
+    normalized = [_fold_text(cell) for cell in header_row]
+    indexes = {}
+    for key, labels in BCR_HEADER_COLUMNS.items():
+        for index, cell in enumerate(normalized):
+            if any(label in cell for label in labels):
+                indexes[key] = index
+                break
+    required = set(BCR_HEADER_COLUMNS)
+    return indexes if required.issubset(indexes) else None
+
+
+def _normalize_bcr_date(date_text):
+    match = re.match(r"^\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*$", date_text or "")
+    if not match:
+        return None
+    day, month, year = match.groups()
+    return normalize_numeric_date(day, month, year)
+
+
+def _bcr_amount_movements(row, indexes, currency):
+    date_str = _normalize_bcr_date(row[indexes["fecha_transaccion"]])
+    if date_str is None:
+        return []
+
+    description = " ".join(row[indexes["description"]].split())
+    if not description:
+        return []
+
+    movements = []
+    for key, direction in (("debit", "-"), ("credit", "+")):
+        amount = row[indexes[key]].strip()
+        if not amount:
+            continue
+        normalized = _normalize_signed_amount(amount, direction)
+        if Decimal(normalized) != 0:
+            movements.append((date_str, description, normalized, currency))
+    return movements
+
+
+def extract_bcr_debit_movements_from_file(file_path):
+    html_text = _read_text_file(file_path)
+    parser = _BCRMovementsHTMLParser()
+    parser.feed(html_text)
+
+    currency = _bcr_debit_currency(" ".join(parser.document_text))
+    header_indexes = None
+    movements = []
+    for row in parser.rows:
+        if header_indexes is None:
+            header_indexes = _bcr_header_indexes(row)
+            continue
+        max_index = max(header_indexes.values())
+        if len(row) <= max_index:
+            continue
+        movements.extend(_bcr_amount_movements(row, header_indexes, currency))
+    return movements
+
+
 def _normalize_amount(amount):
     return _normalize_signed_amount(amount)
 
@@ -574,16 +713,20 @@ def extract_promerica_credit_movements(full_text):
     return movements
 
 
+SOURCE_PDF_TEXT = "pdf_text"
+SOURCE_FILE = "file"
+
 PARSER_REGISTRY = {
-    (BANK_BAC, ACCOUNT_TYPE_CREDIT): (extract_bac_credit_movements, True),
-    (BANK_BAC, ACCOUNT_TYPE_DEBIT): (extract_bac_debit_movements, True),
-    (BANK_PROMERICA, ACCOUNT_TYPE_CREDIT): (extract_promerica_credit_movements, True),
+    (BANK_BAC, ACCOUNT_TYPE_CREDIT): (extract_bac_credit_movements, SOURCE_PDF_TEXT, True),
+    (BANK_BAC, ACCOUNT_TYPE_DEBIT): (extract_bac_debit_movements, SOURCE_PDF_TEXT, True),
+    (BANK_PROMERICA, ACCOUNT_TYPE_CREDIT): (extract_promerica_credit_movements, SOURCE_PDF_TEXT, True),
+    (BANK_BCR, ACCOUNT_TYPE_DEBIT): (extract_bcr_debit_movements_from_file, SOURCE_FILE, None),
 }
 
 
-def process_purchases(pdf_path, bank=BANK_BAC, account_type=ACCOUNT_TYPE_CREDIT):
+def process_purchases(file_path, bank=BANK_BAC, account_type=ACCOUNT_TYPE_CREDIT):
     """
-    Procesa un PDF y devuelve lista de tuplas:
+    Procesa un estado de cuenta y devuelve lista de tuplas:
     (date, description, amount, currency, tag, limit)
     """
     parser_config = PARSER_REGISTRY.get((bank, account_type))
@@ -594,9 +737,12 @@ def process_purchases(pdf_path, bank=BANK_BAC, account_type=ACCOUNT_TYPE_CREDIT)
             raise ValueError(f"Unsupported account type: {account_type}")
         raise ValueError(f"Unsupported bank/account type: {bank} {account_type}")
 
-    parser, layout = parser_config
-    full_text = extract_text(pdf_path, layout=layout)
-    raw = parser(full_text)
+    parser, source, layout = parser_config
+    if source == SOURCE_FILE:
+        raw = parser(file_path)
+    else:
+        full_text = extract_text(file_path, layout=layout)
+        raw = parser(full_text)
     tags = load_tags()
     purchases = []
     for date, desc, amt, cur in raw:
