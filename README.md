@@ -2,14 +2,14 @@
 
 Current release: **v1.0** (`2026-06-08`)
 
-A Python/Tkinter desktop application to extract purchases from bank statement PDFs, tag them with customizable keywords, summarize spending, and export filtered results.
+A Python/Tkinter desktop application to extract purchases from supported bank statement files, tag them with customizable keywords, summarize spending, and export filtered results.
 
 ---
 
 ## Features
 
-- **Multiple PDF Support**: Select one or more PDFs for batch processing.
-- **Bank & Account Type Selection**: Choose the statement bank (`BAC` or `Promerica`) and whether the import is `Credito` or `Debito`.
+- **Multiple Statement Support**: Select one or more supported statement files for batch processing.
+- **Bank & Account Type Selection**: Choose the statement bank (`BAC`, `Promerica`, or `BCR`) and whether the import is `Credito` or `Debito`.
 - **Custom Tags & Keywords**: Manage tags, keywords, categories, budget metadata, optional limits, and JSON import/export through the built-in Tags view.
 - **Case-Insensitive Matching**: Keywords match purchase descriptions regardless of case.
 - **Search & Filter**: Live text search filters the displayed purchases.
@@ -61,7 +61,15 @@ pip install -r requirements-dev.txt
 
    The window title shows `Etiquetador de compras PDF v1.0`.
 
-2. Choose the bank (`BAC` or `Promerica`) and account type (`Credito` or `Debito`), then click **Browse & Tag** and choose one or more PDF files containing purchase data. The app automatically parses the selected PDFs, tags each purchase, and displays the table.
+2. Choose the bank (`BAC`, `Promerica`, or `BCR`) and account type (`Credito` or `Debito`), then click **Browse & Tag** and choose one or more supported statement files. BAC and Promerica imports use PDF statements; BCR debit imports accept `.html`, `.htm`, and BCR's HTML-based `.xls` export. The app automatically parses the selected files, tags each purchase, and displays the table.
+
+Supported bank/account combinations:
+
+| Bank | Credit | Debit | Supported files |
+|---|---:|---:|---|
+| BAC | Yes | Yes | PDF |
+| Promerica | Yes | No | PDF |
+| BCR | No | Yes | HTML, HTM, XLS HTML export |
 3. Use **Search** to filter rows by any displayed text.
 4. Click **Summary** and choose:
    - **Gasto por etiqueta**: Pie chart of total spend per tag.

@@ -70,7 +70,7 @@ def format_totals(rows):
 
 def build_file_label(pdf_files):
     if not pdf_files:
-        return "No hay PDFs seleccionados"
+        return "No hay archivos seleccionados"
     if len(pdf_files) == 1:
         return os.path.basename(pdf_files[0])
-    return f"{len(pdf_files)} PDFs seleccionados"
+    return f"{len(pdf_files)} archivos seleccionados"

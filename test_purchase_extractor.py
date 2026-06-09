@@ -1,10 +1,91 @@
 import unittest
+import os
+import tempfile
 from unittest.mock import patch
 
 from purchase_extractor import process_purchases, extract_purchases
 
 
 class PurchaseExtractorParsingTest(unittest.TestCase):
+    def process_temp_statement(self, contents, suffix=".html", bank="BCR", account_type="Debito"):
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=suffix, delete=False) as statement:
+            statement.write(contents)
+            statement_path = statement.name
+        try:
+            with patch("purchase_extractor.load_tags", return_value={}):
+                return process_purchases(statement_path, bank=bank, account_type=account_type)
+        finally:
+            os.unlink(statement_path)
+
+    def bcr_statement_html(self, rows, account_header="Cuenta Ahorros Colones : CR40015202942000130215"):
+        body_rows = "\n".join(
+            "<tr>"
+            f"<td>{accounting_date}</td><td>{transaction_date}</td><td>{hour}</td>"
+            f"<td>{document}</td><td>{description}</td><td>{debit}</td><td>{credit}</td>"
+            "</tr>"
+            for accounting_date, transaction_date, hour, document, description, debit, credit in rows
+        )
+        return f"""
+<html>
+  <body>
+    <table><tr><th>{account_header}</th></tr></table>
+    <table id="t1">
+      <tr>
+        <th>Fecha contable</th>
+        <th>Fecha transacción</th>
+        <th>Hora</th>
+        <th>Documento</th>
+        <th>Descripción</th>
+        <th>Débitos</th>
+        <th>Créditos</th>
+      </tr>
+      {body_rows}
+    </table>
+  </body>
+</html>
+"""
+
+    def test_process_purchases_extracts_bcr_debit_html_movements(self):
+        html = self.bcr_statement_html([
+            ("04/05/2026", "01/05/2026", "07:02", "7025806", "TRANSFERENC BANCOBCR/PAGO SEMANAL", "-50,000.00", ""),
+        ])
+
+        purchases = self.process_temp_statement(html)
+
+        self.assertEqual(
+            purchases,
+            [("01-MAY-26", "TRANSFERENC BANCOBCR/PAGO SEMANAL", "-50000.00", "CRC", "N/A", 0)],
+        )
+
+    def test_process_purchases_extracts_bcr_xls_html_credits_as_positive_movements(self):
+        html = self.bcr_statement_html([
+            ("29/05/2026", "29/05/2026", "09:13", "1130224", "PLANILLA BCR", "", "452,741.20"),
+            ("29/05/2026", "29/05/2026", "12:01", "25350", "INTS GANADOS AHORROS", "", "2,328.55"),
+        ])
+
+        purchases = self.process_temp_statement(html, suffix=".xls")
+
+        self.assertEqual(
+            purchases,
+            [
+                ("29-MAY-26", "PLANILLA BCR", "452741.20", "CRC", "N/A", 0),
+                ("29-MAY-26", "INTS GANADOS AHORROS", "2328.55", "CRC", "N/A", 0),
+            ],
+        )
+
+    def test_process_purchases_uses_bcr_transaction_date_instead_of_accounting_date(self):
+        html = self.bcr_statement_html([
+            ("02/03/2026", "27/02/2026", "06:29", "15656", "COMPRAS EN COMERCIOS/COLONIA", "-6,500.00", ""),
+        ])
+
+        purchases = self.process_temp_statement(html)
+
+        self.assertEqual(purchases[0][0], "27-FEB-26")
+
+    def test_process_purchases_rejects_bcr_credit_combination(self):
+        with self.assertRaises(ValueError):
+            process_purchases("statement.html", bank="BCR", account_type="Credito")
+
     def test_parses_standard_transaction_line_with_id(self):
         text = """
 Purchases Made

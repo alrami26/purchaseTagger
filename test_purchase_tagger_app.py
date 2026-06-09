@@ -464,24 +464,33 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
     def make_app(self, files=None):
         app = object.__new__(PurchaseTaggerUI)
         app.pdf_files = list(files or [])
-        app.file_label_var = SimpleVar("No hay PDFs seleccionados")
+        app.file_label_var = SimpleVar("No hay archivos seleccionados")
         app.status_var = SimpleVar("")
         app.bank_var = SimpleVar("BAC")
         app.account_type_var = SimpleVar("Credito")
         app.load = Mock()
         return app
 
-    def test_browse_pdf_loads_and_tags_selected_pdfs(self):
+    def test_browse_pdf_loads_and_tags_selected_statement_files(self):
         app = self.make_app()
 
         with patch(
             "purchase_tagger_app.filedialog.askopenfilenames",
-            return_value=(r"C:\tmp\a.pdf", r"C:\tmp\b.pdf"),
-        ):
+            return_value=(r"C:\tmp\a.html", r"C:\tmp\b.xls"),
+        ) as askopenfilenames:
             app.browse_pdf()
 
-        self.assertEqual(app.pdf_files, [r"C:\tmp\a.pdf", r"C:\tmp\b.pdf"])
-        self.assertEqual(app.file_label_var.get(), "2 PDFs seleccionados")
+        self.assertEqual(app.pdf_files, [r"C:\tmp\a.html", r"C:\tmp\b.xls"])
+        self.assertEqual(app.file_label_var.get(), "2 archivos seleccionados")
+        self.assertEqual(
+            askopenfilenames.call_args.kwargs["filetypes"],
+            [
+                ("Estados de cuenta", "*.pdf *.html *.htm *.xls"),
+                ("PDF", "*.pdf"),
+                ("HTML", "*.html *.htm"),
+                ("Excel HTML", "*.xls"),
+            ],
+        )
         app.load.assert_called_once_with()
 
     def test_browse_pdf_cancel_keeps_current_selection_without_loading(self):
@@ -507,7 +516,7 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         app.tree_item_rows = {"old": rows[0]}
         app.tree = FakeTree(["old"])
         app.tree.items["old"] = rows[0]
-        app.file_label_var = SimpleVar("2 PDFs seleccionados")
+        app.file_label_var = SimpleVar("2 archivos seleccionados")
         app.status_var = SimpleVar("Se cargaron y etiquetaron 2 compras")
         app.search_var = SimpleVar("banana")
         app.currency_var = SimpleVar("CRC")
@@ -540,8 +549,8 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         self.assertEqual(app.filtered_rows, [])
         self.assertEqual(app.tree_item_rows, {})
         self.assertEqual(app.tree.deleted, ["old"])
-        self.assertEqual(app.file_label_var.get(), "No hay PDFs seleccionados")
-        self.assertEqual(app.status_var.get(), "No hay PDFs seleccionados")
+        self.assertEqual(app.file_label_var.get(), "No hay archivos seleccionados")
+        self.assertEqual(app.status_var.get(), "No hay archivos seleccionados")
         self.assertEqual(app.search_var.get(), "")
         self.assertEqual(app.currency_var.get(), "Todas las monedas")
         self.assertEqual(app.import_currency_var.get(), "")
@@ -623,7 +632,7 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         label_texts = [call.kwargs.get("text") for call in label.call_args_list]
         self.assertIn("Banco", label_texts)
         self.assertIn("Tipo", label_texts)
-        self.assertEqual(option_menu.call_args_list[0].kwargs["values"], ["BAC", "Promerica"])
+        self.assertEqual(option_menu.call_args_list[0].kwargs["values"], ["BAC", "Promerica", "BCR"])
         self.assertIs(option_menu.call_args_list[0].kwargs["variable"], app.bank_var)
         self.assertEqual(option_menu.call_args_list[1].kwargs["values"], ["Credito", "Debito"])
         self.assertIs(option_menu.call_args_list[1].kwargs["variable"], app.account_type_var)
@@ -638,6 +647,17 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
 
         self.assertEqual(app.account_type_menu.values, ["Credito"])
         self.assertEqual(app.account_type_var.get(), "Credito")
+
+    def test_account_type_selector_refreshes_for_selected_bcr_bank(self):
+        app = self.make_app()
+        app.bank_var = SimpleVar("BCR")
+        app.account_type_var = SimpleVar("Credito")
+        app.account_type_menu = FakeMenu()
+
+        app._refresh_account_type_options()
+
+        self.assertEqual(app.account_type_menu.values, ["Debito"])
+        self.assertEqual(app.account_type_var.get(), "Debito")
 
     def test_imports_view_has_no_manual_load_and_tag_header_button(self):
         app = object.__new__(PurchaseTaggerUI)
@@ -797,7 +817,7 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         self.assertEqual(app.all_rows, [["01-ENE-25", "CAFE", "-80.00", "USD", "Dining", "-"]])
         app.show_view.assert_called_once_with("Imports")
 
-    def test_load_displays_error_message_when_pdf_processing_fails(self):
+    def test_load_displays_error_message_when_statement_processing_fails(self):
         app = object.__new__(PurchaseTaggerUI)
         app.pdf_files = [r"C:\tmp\broken.pdf"]
         app.all_rows = []
@@ -807,11 +827,11 @@ class PurchaseTaggerBrowseTest(unittest.TestCase):
         app.apply_filter = Mock()
         app.update_idletasks = Mock()
 
-        with patch("purchase_tagger_app.process_purchases", side_effect=RuntimeError("Cannot read PDF")), \
+        with patch("purchase_tagger_app.process_purchases", side_effect=RuntimeError("Cannot read file")), \
                 patch("purchase_tagger_app.messagebox.showerror") as showerror:
             app.load()
 
-        showerror.assert_called_once_with("Error", "broken.pdf: Cannot read PDF")
+        showerror.assert_called_once_with("Error", "broken.pdf: Cannot read file")
         app.apply_filter.assert_called_once_with()
 
 
@@ -1081,7 +1101,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app.month_var = SimpleVar("Todos")
         app.search_var = SimpleVar("apple")
         app.tag_filter_var = SimpleVar("N/A")
-        app.file_label_var = SimpleVar("No hay PDFs seleccionados")
+        app.file_label_var = SimpleVar("No hay archivos seleccionados")
         app.total_var = SimpleVar("Totales: 0.00")
         app.kpi_vars = {"total_rows": SimpleVar("0")}
 
@@ -1092,7 +1112,7 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         self.assertEqual(app.month_var.get(), "Todos")
         self.assertEqual(app.search_var.get(), "apple")
         self.assertEqual(app.tag_filter_var.get(), "N/A")
-        self.assertEqual(app.file_label_var.get(), "No hay PDFs seleccionados")
+        self.assertEqual(app.file_label_var.get(), "No hay archivos seleccionados")
         self.assertEqual(app.total_var.get(), "Totales: 0.00")
         self.assertIn("total_rows", app.kpi_vars)
 

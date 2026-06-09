@@ -34,8 +34,8 @@ La ventana debe abrirse con el título `Etiquetador de compras PDF v1.0`.
 
 1. En la vista `Importar`, seleccione el banco.
 2. Seleccione el tipo de cuenta disponible para ese banco.
-3. Presione `Seleccionar PDFs`.
-4. Elija uno o varios archivos PDF.
+3. Presione `Buscar y etiquetar`.
+4. Elija uno o varios archivos de estado de cuenta soportados.
 
 La aplicación extrae las compras, detecta moneda y monto, aplica etiquetas por palabras clave y muestra un resumen de importación.
 
@@ -45,6 +45,12 @@ Soporte de la versión 1.0:
 |---|---:|---:|
 | BAC | Sí | Sí |
 | Promerica | Sí | No |
+| BCR | No | Sí |
+
+Formatos soportados:
+
+- BAC y Promerica: PDF.
+- BCR débito: HTML, HTM y el archivo XLS exportado por BCR cuando contiene una tabla HTML.
 
 ## 4. Revisar y filtrar compras
 
@@ -160,6 +166,6 @@ Si no se abre la aplicación, confirme que instaló las dependencias y ejecute:
 python -m compileall purchase_tagger_app.py purchase_extractor.py tag_store.py summary.py ui_state.py money.py views version.py
 ```
 
-Si no se extraen compras, revise que el banco y tipo de cuenta seleccionados coincidan con el PDF. Los formatos soportados en v1.0 son los de la tabla de bancos anterior.
+Si no se extraen compras, revise que el banco y tipo de cuenta seleccionados coincidan con el archivo. Los formatos soportados en v1.0 son los de la tabla de bancos anterior.
 
-Si los totales parecen incorrectos, revise el filtro de moneda y confirme que los montos del PDF hayan sido leídos con el signo esperado.
+Si los totales parecen incorrectos, revise el filtro de moneda y confirme que los montos del archivo hayan sido leídos con el signo esperado.
