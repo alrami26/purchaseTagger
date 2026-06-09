@@ -20,12 +20,12 @@ def test_resource_path_resolves_assets_in_project_root():
     assert resource_path("assets/app_icon.ico") == str(ROOT / "assets" / "app_icon.ico")
 
 
-def test_release_metadata_marks_version_1_0():
+def test_release_metadata_marks_version_1_0_1():
     assert APP_DISPLAY_NAME == "Etiquetador de compras PDF"
-    assert APP_VERSION == "1.0"
+    assert APP_VERSION == "1.0.1"
     assert __version__ == APP_VERSION
-    assert APP_TITLE == "Etiquetador de compras PDF v1.0"
-    assert RELEASE_DATE == "2026-06-08"
+    assert APP_TITLE == "Etiquetador de compras PDF v1.0.1"
+    assert RELEASE_DATE == "2026-06-09"
 
 
 def test_apply_app_icon_uses_icon_and_photo_when_available():

@@ -1,6 +1,6 @@
 # Purchase Tagger Desktop App
 
-Current release: **v1.0** (`2026-06-08`)
+Current release: **v1.0.1** (`2026-06-09`)
 
 A Python/Tkinter desktop application to extract purchases from supported bank statement files, tag them with customizable keywords, summarize spending, and export filtered results.
 
@@ -59,7 +59,7 @@ pip install -r requirements-dev.txt
    python purchase_tagger_app.py
    ```
 
-   The window title shows `Etiquetador de compras PDF v1.0`.
+   The window title shows `Etiquetador de compras PDF v1.0.1`.
 
 2. Choose the bank (`BAC`, `Promerica`, or `BCR`) and account type (`Credito` or `Debito`), then click **Browse & Tag** and choose one or more supported statement files. BAC and Promerica imports use PDF statements; BCR debit imports accept `.html`, `.htm`, and BCR's HTML-based `.xls` export. The app automatically parses the selected files, tags each purchase, and displays the table.
 
@@ -151,8 +151,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\build_instal
 
 This creates:
 
-- `dist\PurchaseTagger-v1.0-Setup.exe`: per-user installer. It installs to `%LOCALAPPDATA%\Programs\PurchaseTagger` and creates Desktop and Start Menu shortcuts.
-- `dist\PurchaseTagger-v1.0-portable.zip`: portable package containing the executable, manual, default tags, license, README, and changelog.
+- `dist\PurchaseTagger-v1.0.1-Setup.exe`: per-user installer. It installs to `%LOCALAPPDATA%\Programs\PurchaseTagger` and creates Desktop and Start Menu shortcuts.
+- `dist\PurchaseTagger-v1.0.1-portable.zip`: portable package containing the executable, manual, default tags, license, README, and changelog.
 
 ---
 

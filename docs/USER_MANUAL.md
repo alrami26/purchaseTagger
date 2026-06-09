@@ -1,4 +1,4 @@
-# Manual de uso - Etiquetador de compras PDF v1.0
+# Manual de uso - Etiquetador de compras PDF v1.0.1
 
 ## 1. Requisitos
 
@@ -28,7 +28,7 @@ Desde la carpeta del proyecto:
 python purchase_tagger_app.py
 ```
 
-La ventana debe abrirse con el título `Etiquetador de compras PDF v1.0`.
+La ventana debe abrirse con el título `Etiquetador de compras PDF v1.0.1`.
 
 ## 3. Importar estados de cuenta
 
@@ -39,7 +39,7 @@ La ventana debe abrirse con el título `Etiquetador de compras PDF v1.0`.
 
 La aplicación extrae las compras, detecta moneda y monto, aplica etiquetas por palabras clave y muestra un resumen de importación.
 
-Soporte de la versión 1.0:
+Soporte de la versión 1.0.1:
 
 | Banco | Crédito | Débito |
 |---|---:|---:|
@@ -156,7 +156,7 @@ Para generar un instalador compartible de Windows y un paquete portable:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\installer\build_installer.ps1
 ```
 
-El instalador `dist\PurchaseTagger-v1.0-Setup.exe` instala la aplicación para el usuario actual en `%LOCALAPPDATA%\Programs\PurchaseTagger` y crea accesos directos en el Escritorio y el Menú Inicio.
+El instalador `dist\PurchaseTagger-v1.0.1-Setup.exe` instala la aplicación para el usuario actual en `%LOCALAPPDATA%\Programs\PurchaseTagger` y crea accesos directos en el Escritorio y el Menú Inicio.
 
 ## 12. Solución de problemas
 
@@ -166,6 +166,6 @@ Si no se abre la aplicación, confirme que instaló las dependencias y ejecute:
 python -m compileall purchase_tagger_app.py purchase_extractor.py tag_store.py summary.py ui_state.py money.py views version.py
 ```
 
-Si no se extraen compras, revise que el banco y tipo de cuenta seleccionados coincidan con el archivo. Los formatos soportados en v1.0 son los de la tabla de bancos anterior.
+Si no se extraen compras, revise que el banco y tipo de cuenta seleccionados coincidan con el archivo. Los formatos soportados en v1.0.1 son los de la tabla de bancos anterior.
 
 Si los totales parecen incorrectos, revise el filtro de moneda y confirme que los montos del archivo hayan sido leídos con el signo esperado.

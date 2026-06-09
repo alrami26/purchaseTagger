@@ -5,10 +5,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$AppVersion = "1.0.1"
 $BuildRoot = Join-Path $ProjectRoot "build\installer"
 $PayloadDir = Join-Path $BuildRoot "payload"
 $DistDir = Join-Path $ProjectRoot "dist"
-$SetupExe = Join-Path $DistDir "PurchaseTagger-v1.0-Setup.exe"
+$SetupExe = Join-Path $DistDir "PurchaseTagger-v$AppVersion-Setup.exe"
 $AppExe = Join-Path $DistDir "purchase_tagger_app.exe"
 
 function Assert-UnderProjectRoot {
@@ -137,11 +138,11 @@ UserQuietInstCmd=
 SourceFiles=SourceFiles
 
 [Strings]
-InstallPrompt=Instalar PurchaseTagger v1.0 en este usuario?
+InstallPrompt=Instalar PurchaseTagger v$AppVersion en este usuario?
 DisplayLicense=
-FinishMessage=PurchaseTagger v1.0 fue instalado. Puede abrirlo desde el Escritorio o el Menu Inicio.
+FinishMessage=PurchaseTagger v$AppVersion fue instalado. Puede abrirlo desde el Escritorio o el Menu Inicio.
 TargetName=$SetupExe
-FriendlyName=PurchaseTagger v1.0
+FriendlyName=PurchaseTagger v$AppVersion
 AppLaunched=install.cmd
 PostInstallCmd=<None>
 FILE0=purchase_tagger_app.exe
@@ -182,7 +183,7 @@ if (-not (Test-Path $SetupExe)) {
     throw "IExpress did not create expected installer: $SetupExe (exit code $($iexpress.ExitCode))"
 }
 
-$zipPath = Join-Path $DistDir "PurchaseTagger-v1.0-portable.zip"
+$zipPath = Join-Path $DistDir "PurchaseTagger-v$AppVersion-portable.zip"
 if (Test-Path $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
 }

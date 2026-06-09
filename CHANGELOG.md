@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.1 - 2026-06-09
+
+Actualización de importación de estados de cuenta.
+
+### Incluye
+
+- Soporte para BCR en cuentas de débito.
+- Importación de estados BCR en HTML, HTM y XLS con contenido HTML.
+- Selector de archivos actualizado para aceptar PDF, HTML, HTM y XLS.
+- Documentación actualizada con formatos soportados por banco.
+
+### Verificación de release
+
+- `python -m compileall purchase_tagger_app.py purchase_extractor.py tag_store.py summary.py ui_state.py money.py views version.py`
+- `python -m pytest -q`
+
 ## 1.0 - 2026-06-08
 
 Primera versión estable del Etiquetador de compras PDF.
