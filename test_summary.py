@@ -135,6 +135,31 @@ class SummaryTest(unittest.TestCase):
             "2025-02": {"USD": Decimal("40.00")},
         })
 
+    def test_average_spend_by_tag_month_includes_months_without_selected_currency_spend(self):
+        rows = [
+            ["01-ENE-25", "CAFE", "-90.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "-120.00", "CRC", "Groceries"],
+            ["03-MAR-25", "DINNER", "-60.00", "USD", "Dining"],
+        ]
+
+        result = average_spend_by_tag_month(
+            rows,
+            {"USD"},
+            {"Dining": Decimal("40.00")},
+            month_keys=["2025-01", "2025-02", "2025-03"],
+        )
+
+        self.assertEqual(result["months"], ["2025-01", "2025-02", "2025-03"])
+        self.assertEqual(
+            result["currencies_by_month"],
+            {"2025-01": ["USD"], "2025-02": ["USD"], "2025-03": ["USD"]},
+        )
+        self.assertEqual(result["tag_average_by_month"], {"Dining": Decimal("50.00")})
+        self.assertEqual(result["totals"], {
+            "2025-01": {"USD": Decimal("90.00")},
+            "2025-03": {"USD": Decimal("60.00")},
+        })
+
     def test_budget_metadata_aggregates_groups_spend_by_budget_metadata(self):
         rows = [
             ["01-ENE-25", "CARD PAYMENT", "100.00", "USD", "Payments"],

@@ -10,6 +10,7 @@ from purchase_tagger_app import (
     resource_path,
     set_windows_app_user_model_id,
 )
+from version import APP_DISPLAY_NAME, APP_TITLE, APP_VERSION, RELEASE_DATE, __version__
 
 
 ROOT = Path(__file__).resolve().parent
@@ -17,6 +18,14 @@ ROOT = Path(__file__).resolve().parent
 
 def test_resource_path_resolves_assets_in_project_root():
     assert resource_path("assets/app_icon.ico") == str(ROOT / "assets" / "app_icon.ico")
+
+
+def test_release_metadata_marks_version_1_0():
+    assert APP_DISPLAY_NAME == "Etiquetador de compras PDF"
+    assert APP_VERSION == "1.0"
+    assert __version__ == APP_VERSION
+    assert APP_TITLE == "Etiquetador de compras PDF v1.0"
+    assert RELEASE_DATE == "2026-06-08"
 
 
 def test_apply_app_icon_uses_icon_and_photo_when_available():
@@ -61,3 +70,10 @@ def test_pyinstaller_spec_uses_app_icon():
     spec_text = spec_path.read_text(encoding="utf-8")
 
     assert "icon='assets/app_icon.ico'" in spec_text
+
+
+def test_pyinstaller_spec_includes_version_module():
+    spec_path = ROOT / "purchase_tagger_app.spec"
+    spec_text = spec_path.read_text(encoding="utf-8")
+
+    assert "'version'" in spec_text

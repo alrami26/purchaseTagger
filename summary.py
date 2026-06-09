@@ -105,7 +105,7 @@ def summary_aggregates(rows, selected_currencies):
     }
 
 
-def average_spend_by_tag_month(rows, selected_currencies, limits):
+def average_spend_by_tag_month(rows, selected_currencies, limits, month_keys=None):
     selected_currency = _single_selected_currency(selected_currencies)
     data = {}
     totals = {}
@@ -143,6 +143,8 @@ def average_spend_by_tag_month(rows, selected_currencies, limits):
             ZERO,
         )
 
+    months = sorted(set(month_keys)) if month_keys is not None else sorted({month_key for month_key, _currency in data.keys()})
+
     tag_average_by_month = {}
     for tag in {tag for tag_dict in data.values() for tag in tag_dict}:
         all_values = []
@@ -151,13 +153,16 @@ def average_spend_by_tag_month(rows, selected_currencies, limits):
             if tag in tag_dict:
                 all_values.extend(tag_dict[tag])
                 active_months.add(month_key)
-        tag_average_by_month[tag] = sum(all_values, ZERO) / len(active_months) if active_months else ZERO
+        average_months = months if month_keys is not None else active_months
+        tag_average_by_month[tag] = sum(all_values, ZERO) / len(average_months) if average_months else ZERO
 
-    months = sorted({month_key for month_key, _currency in data.keys()})
-    currencies_by_month = {
-        month_key: sorted({currency for data_month, currency in data.keys() if data_month == month_key})
-        for month_key in months
-    }
+    if month_keys is not None:
+        currencies_by_month = {month_key: [selected_currency] for month_key in months}
+    else:
+        currencies_by_month = {
+            month_key: sorted({currency for data_month, currency in data.keys() if data_month == month_key})
+            for month_key in months
+        }
 
     over_limit_by_tag = {
         tag: tag_average_by_month.get(tag, ZERO) > parsed_limits.get(tag, ZERO)

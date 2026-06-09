@@ -9,6 +9,7 @@ local_hiddenimports = [
     'summary',
     'tag_store',
     'ui_state',
+    'version',
     'views',
     'views.tags',
 ]

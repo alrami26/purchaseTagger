@@ -1,6 +1,6 @@
 # File Interaction Map
 
-Generated for the current workspace on 2026-05-20.
+Generated for the current workspace on 2026-06-08.
 
 This project is a small Tkinter desktop app that reads purchase PDFs, extracts purchase rows, assigns tags from `tags.json`, shows/filter/summarizes results, imports/exports tag JSON, and exports CSV output.
 
@@ -15,6 +15,7 @@ The current workspace includes the runtime files required by the app:
 - `ui_state.py`
 - `money.py`
 - `views/`
+- `version.py`
 - `tags.json`
 
 The test files cover tag storage, summary helpers, UI row mapping, and purchase parsing.
@@ -60,7 +61,11 @@ flowchart TD
 | `ui_state.py` | Present | Pure helper functions for view filters, KPI stats, totals formatting, and selected-file labels. | In-memory app rows and tag settings | None | App workspace views and `test_ui_state.py` |
 | `money.py` | Present | Shared Decimal parsing and formatting helpers for monetary values. | In-memory strings and numeric values | None | App, summary, tag store, UI state, and tag view helpers |
 | `views/` | Present | UI view modules split out from the main app class. | Main app state and local helper modules | App state through bound methods | Imported by `purchase_tagger_app.py` |
+| `version.py` | Present | Central release metadata for v1.0, including display title and release date. | None | None | Imported by `purchase_tagger_app.py`; included in `purchase_tagger_app.spec` |
 | `tags.json` | Present | Runtime configuration/data store for tag names, keywords, and optional spending limits. | Read by `tag_store.py` | Updated by tag editor and tag assignment flows | App runtime and packaging |
+| `docs/USER_MANUAL.md` | Present | End-user guide for installation, import workflow, tag management, summaries, export, backups, and troubleshooting. | None | None | Project documentation |
+| `CHANGELOG.md` | Present | Release notes and verification commands for v1.0. | None | None | Project documentation |
+| `installer/build_installer.ps1` | Present | Reproducible Windows packaging script. Builds the PyInstaller executable, creates an IExpress installer, and creates a portable ZIP with the user manual. | App sources, docs, `tags.json`, PyInstaller spec | `build/installer/`, `dist/PurchaseTagger-v1.0-Setup.exe`, `dist/PurchaseTagger-v1.0-portable.zip` | Maintainers |
 | `requirements.txt` | Present | Runtime dependency list. | None | None | Install instructions |
 | `requirements-dev.txt` | Present | Development/test dependency list. | `requirements.txt` | None | Test setup |
 | `test_purchase_extractor.py` | Present | Pure parsing tests for `extract_purchases()`. | `purchase_extractor.py` | None | `pytest` |
@@ -126,3 +131,4 @@ Update this map when:
 - The shape of `tags.json` or purchase rows changes.
 - Packaging inputs in `purchase_tagger_app.spec` change.
 - New test, dependency, or generated-output conventions are added.
+- Release metadata changes in `version.py`.

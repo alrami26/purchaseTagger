@@ -14,7 +14,7 @@ from purchase_extractor import (
     SUPPORTED_ACCOUNT_TYPES_BY_BANK,
     process_purchases,
 )
-from tag_store import default_tag_info, load_tags, merge_tags, save_tags
+from tag_store import DEFAULT_PARENT_CATEGORY, default_tag_info, load_tags, merge_tags, save_tags
 from money import ZERO, format_amount, parse_amount
 from summary import (
     available_months,
@@ -37,6 +37,7 @@ from ui_state import (
     format_totals,
     kpi_stats,
 )
+from version import APP_TITLE
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from datetime import datetime
@@ -136,7 +137,7 @@ class PurchaseTaggerUI(ctk.CTk):
         ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
         super().__init__()
-        self.title("Etiquetador de compras PDF")
+        self.title(APP_TITLE)
         self.geometry(DEFAULT_WINDOW_GEOMETRY)
         self._apply_app_icon()
 
@@ -1042,7 +1043,7 @@ class PurchaseTaggerUI(ctk.CTk):
         data_rows = filter_rows_by_month(rows, self.summary_month_var.get())
         choice = self.summary_choice_var.get()
         if choice == "Gasto promedio por etiqueta/mes":
-            self._draw_average_spend_table(data_rows, selected)
+            self._draw_average_spend_table(data_rows, selected, report_months=available_months(data_rows))
             return
 
         aggregates = summary_aggregates(data_rows, selected)
@@ -1130,9 +1131,9 @@ class PurchaseTaggerUI(ctk.CTk):
         self.summary_canvas.draw()
         self.summary_canvas.get_tk_widget().grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
-    def _draw_average_spend_table(self, data_rows, selected):
+    def _draw_average_spend_table(self, data_rows, selected, report_months=None):
         limits = {tag: parse_amount(info.get("planned_amount", info.get("limit", ZERO))) for tag, info in self.tags.items()}
-        summary_data = average_spend_by_tag_month(data_rows, selected, limits)
+        summary_data = average_spend_by_tag_month(data_rows, selected, limits, month_keys=report_months)
         tag_totals = summary_data["tag_month_totals"]
         tag_global_totals = summary_data["tag_global_totals"]
         average_by_tag = summary_data["tag_average_by_month"]
@@ -1143,11 +1144,12 @@ class PurchaseTaggerUI(ctk.CTk):
         self.summary_frame.grid_rowconfigure(0, weight=1)
         self.summary_frame.grid_columnconfigure(0, weight=1)
 
-        columns = ["Etiqueta", "Presupuesto", "Promedio", "Total etiqueta"] + [
+        month_columns = [
             f"{month_key}_{currency}"
             for month_key in months
             for currency in currencies_by_month[month_key]
         ]
+        columns = ["Etiqueta", "Presupuesto"] + month_columns + ["Total", "Promedio"]
         summary_tree = ttk.Treeview(self.summary_frame, columns=columns, show="headings")
         summary_tree.grid(row=0, column=0, sticky="nsew", padx=(10, 0), pady=(10, 0))
 
@@ -1161,43 +1163,73 @@ class PurchaseTaggerUI(ctk.CTk):
         summary_tree.column("Etiqueta", width=120, anchor="w", stretch=True)
         summary_tree.heading("Presupuesto", text="Presupuesto", anchor="e")
         summary_tree.column("Presupuesto", width=100, anchor="e", stretch=True)
+        summary_tree.heading("Total", text="Total", anchor="e")
+        summary_tree.column("Total", width=110, anchor="e", stretch=True)
         summary_tree.heading("Promedio", text="Promedio", anchor="e")
         summary_tree.column("Promedio", width=90, anchor="e", stretch=True)
-        summary_tree.heading("Total etiqueta", text="Total etiqueta", anchor="e")
-        summary_tree.column("Total etiqueta", width=110, anchor="e", stretch=True)
 
-        for column in columns[4:]:
+        for column in month_columns:
             month_key, currency = column.split("_")
             month_name = datetime.strptime(month_key, "%Y-%m").strftime("%b %Y")
             summary_tree.heading(column, text=f"{month_name} {currency}", anchor="center")
             summary_tree.column(column, width=90, anchor="e", stretch=True)
 
+        summary_tree.tag_configure("category", foreground="#111827")
         summary_tree.tag_configure("over_limit", foreground="red")
 
+        tags_by_category = {}
         for tag in sorted(tag_totals):
-            limit = limits.get(tag, ZERO)
-            average = average_by_tag.get(tag, ZERO)
-            tag_total = tag_global_totals.get(tag, ZERO)
-            detail_values = [
-                format_amount(tag_totals[tag].get(month_key, {}).get(currency))
-                if tag_totals[tag].get(month_key, {}).get(currency)
-                else ""
-                for month_key in months
-                for currency in currencies_by_month[month_key]
-            ]
-            row_tags = ["over_limit"] if summary_data["over_limit_by_tag"].get(tag) else []
+            category = self._parent_category_for_tag(tag)
+            tags_by_category.setdefault(category, []).append(tag)
+
+        for category in sorted(tags_by_category):
+            category_tags = tags_by_category[category]
+            category_limit = sum((limits.get(tag, ZERO) for tag in category_tags), ZERO)
+            category_average = sum((average_by_tag.get(tag, ZERO) for tag in category_tags), ZERO)
+            category_total = sum((tag_global_totals.get(tag, ZERO) for tag in category_tags), ZERO)
+            category_detail = self._average_spend_detail_values(
+                category_tags,
+                tag_totals,
+                months,
+                currencies_by_month,
+            )
+            category_row_tags = ["over_limit"] if category_average > category_limit else ["category"]
             summary_tree.insert(
                 "",
                 "end",
                 values=[
-                    tag,
-                    format_amount(limit),
-                    format_amount(average) if average else "",
-                    format_amount(tag_total) if tag_total else "",
-                    *detail_values,
+                    category,
+                    format_amount(category_limit),
+                    *category_detail,
+                    format_amount(category_total) if category_total else "",
+                    format_amount(category_average) if category_average else "",
                 ],
-                tags=row_tags,
+                tags=category_row_tags,
             )
+
+            for tag in category_tags:
+                limit = limits.get(tag, ZERO)
+                average = average_by_tag.get(tag, ZERO)
+                tag_total = tag_global_totals.get(tag, ZERO)
+                detail_values = self._average_spend_detail_values(
+                    [tag],
+                    tag_totals,
+                    months,
+                    currencies_by_month,
+                )
+                row_tags = ["over_limit"] if summary_data["over_limit_by_tag"].get(tag) else []
+                summary_tree.insert(
+                    "",
+                    "end",
+                    values=[
+                        f"  {tag}",
+                        format_amount(limit),
+                        *detail_values,
+                        format_amount(tag_total) if tag_total else "",
+                        format_amount(average) if average else "",
+                    ],
+                    tags=row_tags,
+                )
 
         total_detail = [
             format_amount(totals.get(month_key, {}).get(currency))
@@ -1213,13 +1245,31 @@ class PurchaseTaggerUI(ctk.CTk):
             values=[
                 "Total",
                 format_amount(summary_data["total_limit"]),
-                format_amount(summary_data["total_average"]),
-                format_amount(summary_data["total_spend"]),
                 *total_detail,
+                format_amount(summary_data["total_spend"]),
+                format_amount(summary_data["total_average"]),
             ],
             tags=total_tags,
         )
         self.summary_frame.update_idletasks()
+
+    def _parent_category_for_tag(self, tag):
+        info = self.tags.get(tag, {})
+        if not isinstance(info, dict):
+            return DEFAULT_PARENT_CATEGORY
+        category = str(info.get("parent_category", DEFAULT_PARENT_CATEGORY) or "").strip()
+        return category or DEFAULT_PARENT_CATEGORY
+
+    def _average_spend_detail_values(self, tags, tag_totals, months, currencies_by_month):
+        values = []
+        for month_key in months:
+            for currency in currencies_by_month[month_key]:
+                total = sum(
+                    (tag_totals[tag].get(month_key, {}).get(currency, ZERO) for tag in tags),
+                    ZERO,
+                )
+                values.append(format_amount(total) if total else "")
+        return values
 
     def browse_pdf(self):
         files = filedialog.askopenfilenames(filetypes=[("Archivos PDF", "*.pdf")])

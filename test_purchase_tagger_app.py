@@ -2405,8 +2405,8 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
         app = object.__new__(PurchaseTaggerUI)
         app.summary_frame = FakeFrame()
         app.tags = {
-            "Dining": {"limit": 50},
-            "Groceries": {"limit": 200},
+            "Dining": {"limit": 50, "parent_category": "Comida"},
+            "Groceries": {"limit": 200, "parent_category": "Comida"},
         }
         rows = [
             ["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"],
@@ -2420,9 +2420,82 @@ class PurchaseTaggerRowMappingTest(unittest.TestCase):
 
         tree = FakeSummaryTree.instances[0]
         self.assertIn("over_limit", tree.tag_options)
-        self.assertEqual(tree.rows[0]["values"][0], "Dining")
-        self.assertEqual(tree.rows[0]["tags"], ["over_limit"])
+        dining_row = next(row for row in tree.rows if row["values"][0] == "  Dining")
+        self.assertEqual(dining_row["tags"], ["over_limit"])
         self.assertEqual(tree.rows[-1]["values"][0], "Total")
+
+    def test_average_spend_table_groups_tags_under_parent_category_rows(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.summary_frame = FakeFrame()
+        app.tags = {
+            "Dining": {"limit": 80, "parent_category": "Alimentación"},
+            "Groceries": {"limit": 120, "parent_category": "Alimentación"},
+            "Bus": {"limit": 50, "parent_category": "Transporte"},
+        }
+        rows = [
+            ["01-ENE-25", "CAFE", "-90.00", "USD", "Dining"],
+            ["02-ENE-25", "MARKET", "-60.00", "USD", "Groceries"],
+            ["03-ENE-25", "BUS", "-20.00", "USD", "Bus"],
+        ]
+        FakeSummaryTree.instances = []
+
+        with patch("purchase_tagger_app.ttk.Treeview", side_effect=FakeSummaryTree), \
+                patch("purchase_tagger_app.ttk.Scrollbar", side_effect=FakeWidget):
+            app._draw_average_spend_table(rows, {"USD"})
+
+        tree = FakeSummaryTree.instances[0]
+        self.assertEqual(
+            [row["values"][0] for row in tree.rows],
+            ["Alimentación", "  Dining", "  Groceries", "Transporte", "  Bus", "Total"],
+        )
+        self.assertEqual(tree.rows[0]["values"], ["Alimentación", "200.00", "150.00", "150.00", "150.00"])
+        self.assertEqual(tree.rows[0]["tags"], ["category"])
+
+    def test_average_spend_table_marks_parent_category_over_budget_red(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.summary_frame = FakeFrame()
+        app.tags = {
+            "Dining": {"limit": 50, "parent_category": "Comida"},
+            "Groceries": {"limit": 100, "parent_category": "Comida"},
+        }
+        rows = [
+            ["01-ENE-25", "CAFE", "-80.00", "USD", "Dining"],
+            ["02-ENE-25", "MARKET", "-90.00", "USD", "Groceries"],
+        ]
+        FakeSummaryTree.instances = []
+
+        with patch("purchase_tagger_app.ttk.Treeview", side_effect=FakeSummaryTree), \
+                patch("purchase_tagger_app.ttk.Scrollbar", side_effect=FakeWidget):
+            app._draw_average_spend_table(rows, {"USD"})
+
+        tree = FakeSummaryTree.instances[0]
+        self.assertEqual(tree.rows[0]["values"][0], "Comida")
+        self.assertEqual(tree.rows[0]["values"][1], "150.00")
+        self.assertEqual(tree.rows[0]["values"][-1], "170.00")
+        self.assertEqual(tree.rows[0]["tags"], ["over_limit"])
+
+    def test_average_spend_table_keeps_report_month_columns_without_tag_spend(self):
+        app = object.__new__(PurchaseTaggerUI)
+        app.summary_frame = FakeFrame()
+        app.tags = {"Dining": {"limit": 40, "parent_category": "Comida"}}
+        rows = [
+            ["01-ENE-25", "CAFE", "-90.00", "USD", "Dining"],
+            ["02-FEB-25", "MARKET", "-120.00", "CRC", "Groceries"],
+            ["03-MAR-25", "DINNER", "-60.00", "USD", "Dining"],
+        ]
+        FakeSummaryTree.instances = []
+
+        with patch("purchase_tagger_app.ttk.Treeview", side_effect=FakeSummaryTree), \
+                patch("purchase_tagger_app.ttk.Scrollbar", side_effect=FakeWidget):
+            app._draw_average_spend_table(rows, {"USD"}, report_months=["2025-01", "2025-02", "2025-03"])
+
+        tree = FakeSummaryTree.instances[0]
+        self.assertEqual(
+            tree.columns,
+            ["Etiqueta", "Presupuesto", "2025-01_USD", "2025-02_USD", "2025-03_USD", "Total", "Promedio"],
+        )
+        self.assertEqual(tree.rows[0]["values"], ["Comida", "40.00", "90.00", "", "60.00", "150.00", "50.00"])
+        self.assertEqual(tree.rows[1]["values"], ["  Dining", "40.00", "90.00", "", "60.00", "150.00", "50.00"])
 
 
 if __name__ == "__main__":
